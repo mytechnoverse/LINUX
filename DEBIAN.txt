@@ -1,4 +1,148 @@
 
+check which deb package installed a file or executable :
+dpkg-query -S { Config file ADR | executable ADR }
+
+
+
+
+debian packages : ca-certificates , debian-archive-keyring 
+
+
+debootstrap in vm 
+
+
+
+
+systemd-detect-virt
+
+1. debootstrap only kernel , required pkgs , no cloud-init
+
+2. LUKS root , separate boot partition if needed
+
+3. sign kernel and modules , restrict initramfs scripts
+
+
+
+Remote attestation : TPM-backed ( Intel TDX )
+
+Sign kernel/initramfs and kernel modules yourself
+Verify signatures at boot
+
+LUKS full-disk encryption + remote unlock ( SSH in initramfs ) : protects data-at-rest
+
+Rescue mode ::::::::::::::
+
+list disks :
+
+lsblk
+fdisk -l
+
+( /dev/sda ???? )
+
+bios vs uefi ???
+
+BIOS :
+
+fdisk /dev/sda
+
+/dev/sda1 : boot partition ( 512 MB )
+/dev/sda2 : LUKS container
+
+
+
+( swap ????? )
+sudo apt install cryptsetup debootstrap binutils
+
+cryptsetup luksFormat /dev/sda2
+cryptsetup open /dev/sda2 cryptroot
+
+mkfs.ext4 /dev/mapper/cryptroot
+mkfs.ext4 /dev/sda1
+
+mount /dev/mapper/cryptroot /mnt
+mkdir /mnt/boot
+mount /dev/sda1 /mnt/boot
+
+debootstrap trixie /mnt https://deb.debian.org/debian
+
+
+download and extract debian net install iso , use file:/{ ISO PATH }/debian instead of https . check Packages file being present in the /debian subpath of iso   
+
+mount --bind /dev /mnt/dev
+mount --bind /proc /mnt/proc
+mount --bind /sys /mnt/sys
+mount --bind /run /mnt/run
+
+
+( mount --bind /dev /mnt/dev , mount -t proc proc /mnt/proc ) only ????
+
+chroot /mnt /bin/bash
+
+echo "debian" > /etc/hostname
+
+echo "127.0.0.1 localhost\n127.0.1.1 debian\n::1 localhost ip6-localhost ip6-loopback\nff02::1 ip6-allnodes\nff02::2 ip6-allrouters" > /etc/hosts
+
+
+
+/etc/network/interfaces , /etc/resolv.conf , /etc/hostname , /etc/hosts
+
+echo "" > /etc/network/interfaces
+
+
+apt update
+apt install sudo openssh-server linux-image-amd64 grub-pc cryptsetup-initramfs
+
+( mbr : grub-pc | gpt : grub-efi-amd64 )
+
+/etc/crypttab :
+
+cryptroot /dev/sda2 none luks
+
+/etc/fstab :
+
+/dev/mapper/cryptroot / ext4 defaults 0 1
+/dev/sda1 /boot ext4 defaults 0 2
+
+-------
+
+grub-install /dev/sda
+update-grub
+
+passwd
+adduser admin
+usermod -aG sudo admin
+
+/etc/ssh/sshd_config :
+
+PermitRootLogin no
+PasswordAuthentication yes
+
+systemctl enable ssh
+
+umount -R /mnt
+cryptsetup close cryptroot
+
+reboot
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ====== Bash Scripting :
 
 Syntax Checking   : bash -n { Script Name } 
@@ -26,28 +170,26 @@ check to change for root in place
 
 create a cli interface for Config-Hosts and Config-Resolve
 
-Config-Host-Name --mode { default | update } --name srv1 [ --domain xyz.com ]
+Config-Host-Name --mode { replace | update } --name srv1 [ --domain xyz.com ]
 
 CONFIG_HOSTNAME() {
   local NEW_HOSTNAME="$1"
   if [[ "$(hostnamectl --static)" -ne "$NEW_HOSTNAME" ]]
   then
-    SUDO hostnamectl set-hostname "$NEW_HOSTNAME"
+    SUDO hostnamectl hostname "$NEW_HOSTNAME"
   fi
 }
 
-DEFAULT_HOSTS() {
-  local HOSTS_CONTENT="127.0.0.1 localhost\n127.0.1.1 ${HOSTS_ENTRY}\n::1 localhost ip6-localhost ip6-loopback\nff02::1 ip6-allnodes\nff02::2 ip6-allrouters\n"
-  printf "%b" "$HOSTS_CONTENT" | SUDO tee "$HOSTS_PATH" >/dev/null
+CONF_HOSTS_GENERATE() {
+  CONF_HOSTS_CONTENT="127.0.0.1 localhost\n127.0.1.1 ${CONF_HOSTS_ENTRY}\n::1 localhost ip6-localhost ip6-loopback\nff02::1 ip6-allnodes\nff02::2 ip6-allrouters\n"
 }
 
-UPDATE_HOSTS() {
-  if [[ $(grep -c -F "127.0.1.1" "$HOSTS_PATH") -eq 1 ]] && grep -q '^127\.0\.1\.1 .*$' "$HOSTS_PATH"
+CONF_HOSTS_UPDATE() {
+  if [[ $(grep -c -F "127.0.1.1" "$CONF_HOSTS_PATH") -eq 1 ]] && grep -q '^127\.0\.1\.1 .*$' "$CONF_HOSTS_PATH"
   then
-    if ! grep -q "^127.0.1.1 $HOSTS_ENTRY$" "$HOSTS_PATH"
+    if ! grep -q "^127.0.1.1 $CONF_HOSTS_ENTRY$" "$CONF_HOSTS_PATH"
     then
-      CONF_WRITABLE "$HOSTS_PATH" || return 1
-      SUDO sed -i "s|^127\.0\.1\.1 .*$|127.0.1.1 ${HOSTS_ENTRY}|" "$HOSTS_PATH"
+      SUDO sed -i "s|^127\.0\.1\.1 .*$|127.0.1.1 ${CONF_HOSTS_ENTRY}|" "$CONF_HOSTS_PATH"
     fi
   fi
 }
@@ -56,21 +198,24 @@ CONFIG_HOSTS() {
   local CFG_MODE="$1"
   local NEW_HOSTNAME="$2"
   local SITE_DOMAIN="$3"
-  local HOSTS_PATH="/etc/hosts"
-  local HOSTS_ENTRY=""
+  local CONF_HOSTS_ENTRY=""
   if [[ -z "$SITE_DOMAIN" ]]
   then
-    HOSTS_ENTRY="$NEW_HOSTNAME"
+    CONF_HOSTS_ENTRY="$NEW_HOSTNAME"
   else
-    HOSTS_ENTRY="${NEW_HOSTNAME}.${SITE_DOMAIN} ${NEW_HOSTNAME}"
+    CONF_HOSTS_ENTRY="${NEW_HOSTNAME}.${SITE_DOMAIN} ${NEW_HOSTNAME}"
   fi
-  if [[ "$CFG_MODE" == "default" ]]
+  local CONF_HOSTS_PATH="/etc/hosts"
+  CONF_READABLE "$CONF_HOSTS_PATH" || return 1
+  SUDO CONF_WRITABLE "$CONF_HOSTS_PATH" || return 1
+  if [[ "$CFG_MODE" eq "replace" ]]
   then
-    CONF_WRITABLE "$RESOLV_PATH" || return 1
-    return DEFAULT_HOSTS
-  else
-    CONF_READABLE "$RESOLV_PATH" || return 1
-    return UPDATE_HOSTS
+    CONF_HOSTS_CONTENT=""
+    CONF_HOSTS_GENERATE
+    printf "%b" "$CONF_HOSTS_CONTENT" | SUDO tee "$CONF_HOSTS_PATH" >/dev/null
+  elif [[ "$CFG_MODE" eq "update" ]]
+  then
+    CONF_HOSTS_UPDATE
   fi
 }
 
@@ -141,28 +286,51 @@ defs.sh :
 
 #!/bin/bash
 
-CONF_READABLE() {
-  local CONF_PATH="$1"
-  [[ -n "$CONF_PATH" && -f "$CONF_PATH" && -r "$CONF_PATH" ]] || {
-    ERROR_MSG="${CONF_PATH} Conf File Without READ Permission"
+FILE_READABLE() {
+  local FILE_PATH="$1"
+  [[ -n "$FILE_PATH" && -f "$FILE_PATH" && -r "$FILE_PATH" ]] || {
+    ERROR_MSG="${FILE_PATH} File READ Permission"
     return 1
   }
 }
 
-CONF_WRITABLE() {
-  local CONF_PATH="$1"
-  [[ -n "$CONF_PATH" && -f "$CONF_PATH" && -w "$CONF_PATH" ]] || {
-    ERROR_MSG="${CONF_PATH} Conf File Without WRITE Permission"
+FILE_WRITABLE() {
+  local FILE_PATH="$1"
+  [[ -n "$FILE_PATH" && -f "$FILE_PATH" && -w "$FILE_PATH" ]] || {
+    ERROR_MSG="${CONF_PATH} File WRITE Permission"
     return 1
   }
 }
 
 APP_EXECUTABLE() {
   local APP_PATH="$1"
-  [[ -n "$CONF_PATH" && -f "$CONF_PATH" && -x "$CONF_PATH" ]] || {
-    ERROR_MSG="${APP_PATH} Application Without EXECUTE Permission"
+  [[ -n "$APP_PATH" && -f "$APP_PATH" && -x "$APP_PATH" ]] || {
+    ERROR_MSG="${APP_PATH} Application EXECUTE Permission"
     return 1
   }
+}
+
+APP_INSTALLED() {
+  local APP_NAME="$1"
+  [[ -n "$APP_NAME" ]] || {
+    ERROR_MSG="Application Not Specified"
+    return 1
+  }
+  command -v "$APP_NAME" >/dev/null 2>&1 || {
+    ERROR_MSG="${APP_NAME} Application Not Installed"
+    return 1
+  }
+}
+
+PROMPT_SUDO() {
+  if [[ $EUID -ne 0 ]]
+  then
+    APP_INSTALLED sudo || return 1
+    sudo -v || {
+      ERROR_MSG="SUDO Authentication Failed"
+      return 1
+    }
+  fi
 }
 
 SUDO() {
@@ -174,33 +342,135 @@ SUDO() {
   fi
 }
 
-CHECK_APP() {
+APP_AVAILABLE() {
   local APP_NAME="$1"
-  if ! command -v "$APP_NAME" >/dev/null 2>&1 && [[ ! -x "./$APP_NAME" ]]
+  [[ -n "$APP_NAME" ]] || return 1
+  if ! APP_INSTALLED "$APP_NAME" && ! APP_EXECUTABLE "./$APP_NAME"
   then
+    ERROR_MSG="${APP_NAME} Application Not Available"
     return 1
   fi
 }
 
-CHECK_PKG() {
+PKG_INSTALLED() {
   local PKG_NAME="$1"
-  dpkg-query -W -f='${Status}' "$PKG_NAME" 2>/dev/null | grep -Fq "install ok installed"
+  [[ -n "$PKG_NAME" ]] || {
+    ERROR_MSG="Package Not Specified"
+    return 1
+  }
+  dpkg-query -W -f='${Status}' "$PKG_NAME" 2>/dev/null | grep -q "^install ok installed$" || {
+    ERROR_MSG="${PKG_NAME} Package Not Installed"
+    return 1
+  }
 }
 
-UPDATE_PKG_INDEX() {
-  SUDO apt-get update >/dev/null
+UPDATE_PKGS_INDEX() {
+  [[ "${PKGS_INDEX_UPDATED:-}" == "true" ]] || {
+    PROMPT_SUDO || return 1
+    export DEBIAN_FRONTEND="noninteractive"
+    export NEEDRESTART_MODE="a"
+    if SUDO apt-get update >/dev/null
+    then
+      PKGS_INDEX_UPDATED=true
+    else
+      ERROR_MSG="APT Packages Index Update Failed"
+      return 1
+    fi
+  }
 }
 
 INSTALL_PKG() {
   local PKG_NAME="$1"
-  SUDO apt-get install -y "$PKG_NAME" >/dev/null
+  [[ -n "$PKG_NAME" ]] || {
+    ERROR_MSG="Package Not Specified"
+    return 1
+  }
+  PKG_INSTALLED "$PKG_NAME" || {
+    PROMPT_SUDO || return 1
+    export DEBIAN_FRONTEND="noninteractive"
+    export NEEDRESTART_MODE="a"
+    SUDO apt-get install -y "$PKG_NAME" >/dev/null || {
+      ERROR_MSG="${PKG_NAME} Package Installation Failed"
+      return 1
+    }
+  }
+}
+
+INSTALL_PKG_LOCAL()
+
+
+
+
+
+--allow-remove-essential
+
+
+
+sudo apt-get install --reinstall package_name ( redownloads binaries , keeps config files )
+sudo dpkg-reconfigure package_name ( runs package scripts again , regenerates config file )
+
+
+sudo apt-get purge -y nginx >/dev/null
+sudo apt-get autoremove --purge -y >/dev/null
+
+
+
+
+
+sudo apt-get install debsums
+sudo debsums -s openssh-server
+
+sudo apt-get install --reinstall openssh-server ( KEEPS CONNECTION )
+or
+sudo apt-get purge openssh-server
+sudo apt-get install openssh-server
+
+
+DEPENDANT_PKGS_LIST=($(apt-cache rdepends --installed libssl3t64 | sed -n 's/^[[:space:]]\+//p'))
+
+
+apt-get download 
+
+
+1. ca-certificates
+2. openssl
+3. libssl3t64 
+
+
+echo "sudo apt-get install -y openssh-server" | at now + 5 minutes
+atq
+atrm <job_id>
+
+
+
+sudo apt-get purge openssh-server openssh-sftp-server openssh-client
+sudo apt-get autoremove --purge
+sudo apt-get install openssh-server openssh-sftp-server openssh-client
+
+
+sudo apt-get install debsums
+sudo debsums -s openssh-server openssh-sftp-server openssh-client
+
+
+UPGRADE_PKG() {
+  local PKG_NAME="$1"
+  [[ -n "$PKG_NAME" ]] || {
+    ERROR_MSG="Package Not Specified"
+    return 1
+  }
+  PROMPT_SUDO || return 1
+  export DEBIAN_FRONTEND="noninteractive"
+  export NEEDRESTART_MODE="a"
+  SUDO apt-get install -y "$PKG_NAME" >/dev/null || {
+    ERROR_MSG="${PKG_NAME} Package Upgrade Failed"
+    return 1
+  }
 }
 
 PROVIDE_APPS() {
   local -n APPS_LIST=$1
   local -n PKGS_LIST=$2
   local INDEX_UPDATED=false
-  export DEBIAN_FRONTEND=noninteractive
   for APP_INDEX in "${!APPS_LIST[@]}"
   do
     local APP_NAME="${APPS_LIST[$APP_INDEX]}"
