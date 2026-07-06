@@ -1,6 +1,436 @@
 
-check which deb package installed a file or executable :
-dpkg-query -S { Config file ADR | executable ADR }
+
+
+
+
+GAWK DEB Package :
+
+sudo apt install musl-tools build-essential
+
+#!/bin/bash
+set -Eeuo pipefail
+
+curl -LO https://ftp.gnu.org/gnu/gawk/gawk-5.4.0.tar.xz
+tar -xf gawk-5.4.0.tar.xz
+rm ./gawk-5.4.0.tar.xz
+CC=musl-gcc CFLAGS="-O2 -static" LDFLAGS="-static" ac_cv_lib_mpfr=no ac_cv_lib_gmp=no ./gawk-5.4.0/configure --disable-shared --enable-static --disable-nls --disable-extensions
+make -j"$(nproc)"
+strip ./gawk-5.4.0/gawk
+file ./gawk-5.4.0/gawk
+mv ./gawk-5.4.0/gawk ./gawk
+rm -rf ./gawk-5.4.0
+mkdir -p awkk/DEBIAN
+printf "Package: awkk\nVersion: 1.8.1\nArchitecture: amd64\nDescription: GNU AWK Static Standalone Build\nMaintainer: Debian Local <debian@local>\n" | tee ./awkk/DEBIAN/control > /dev/null
+mkdir -p awkk/usr/local/bin
+cp ./gawk ./awkk/usr/local/bin/awkk
+chmod 755 ./awkk/usr/local/bin/awkk
+dpkg-deb -Zzstd --build --root-owner-group ./awkk awkk_5.4.0-1_amd64.deb
+rm -rf ./awkk
+
+===============================================================================================================================================================================================
+
+
+JQ DEB Package :
+
+#!/bin/bash
+set -Eeuo pipefail
+
+curl -LO https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64
+mkdir -p jqq/DEBIAN
+printf "Package: jqq\nVersion: 1.8.1\nArchitecture: amd64\nDescription: https://github.com/jqlang/jq\nMaintainer: Debian Local <debian@local>\n" | tee ./jqq/DEBIAN/control > /dev/null
+mkdir -p jqq/usr/local/bin
+cp ./jq-linux-amd64 ./jqq/usr/local/bin/jqq
+chmod 755 ./jqq/usr/local/bin/jqq
+dpkg-deb -Zzstd --build --root-owner-group ./jqq jqq_1.8.1-1_amd64.deb
+rm -rf ./jqq
+
+===============================================================================================================================================================================================
+
+YQ GO DEB Package :
+
+#!/bin/bash
+set -Eeuo pipefail
+
+curl -LO https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64
+mkdir -p yqq/DEBIAN
+printf "Package: yqq\nVersion: 4.53.3\nArchitecture: amd64\nDescription: https://github.com/mikefarah/yq\nMaintainer: Debian Local <debian@local>\n" | tee ./yqq/DEBIAN/control > /dev/null
+mkdir -p yqq/usr/local/bin
+cp ./yq_linux_amd64 ./yqq/usr/local/bin/yqq
+chmod 755 ./yqq/usr/local/bin/yqq
+dpkg-deb -Zzstd --build --root-owner-group ./yqq yqq_4.53.3-1_amd64.deb
+rm -rf ./yqq
+
+===============================================================================================================================================================================================
+
+Config-IP :
+
+#!/bin/bash
+set -Eeuo pipefail
+
+usage() {
+  printf ' %s --addr 192.168.1.2/24 --gateway 192.168.1.1\n' "$0"
+}
+
+INT_IP_CIDR=""
+INT_GATEWAY=""
+
+ARGS=$(getopt --long addr:,gateway:,help -- "$@")
+eval set -- "$ARGS"
+
+while true; do
+  case "$1" in
+    --addr)
+      INT_IP_CIDR="$2"
+      shift 2 ;;
+    --gateway)
+      INT_GATEWAY="$2"
+      shift 2 ;;
+    --help)
+      usage
+      exit 1 ;;
+    --)
+      shift
+      break ;;
+    *)
+      usage
+      exit 1 ;;
+  esac
+done
+
+INT_MAC=$( ip -j link | jq -r '[ .[] | select(.link_type == "ether") | .address ][0]')
+
+if [[ -z "$INT_MAC" ]]
+then
+  printf 'Ethernet Network Interface Not Found !\n' >&2
+  exit 1
+fi
+
+YQQ_QUERY='.Match.Name = "eth0" | .Network.DHCP = "no" | .Network.IPv6AcceptRA = "no"'
+
+if [[ -n "$INT_IP_CIDR" ]]
+then
+  YQQ_QUERY+=' | .Network.Address = strenv(INT_IP_CIDR)'
+else
+  usage
+  exit 1
+fi
+
+if [[ -n "$INT_GATEWAY" ]]
+then
+  YQQ_QUERY+=' | .Route[0].Destination = "0.0.0.0/0" | .Route[0].Gateway = strenv(INT_GATEWAY)'
+else
+  usage
+  exit 1
+fi
+
+INT_CONF_PREFIX="/etc/systemd/network/10-eth0."
+INT_CONF_L2_PATH="${INT_CONF_PREFIX}link"
+INT_CONF_L3_PATH="${INT_CONF_PREFIX}network"
+if systemctl is-active networking --quiet
+then
+  rm -rf /etc/systemd/network/*
+  touch "$INT_CONF_L2_PATH"
+  chown root:root "$INT_CONF_L2_PATH"
+  chmod 644 "$INT_CONF_L2_PATH"
+  yqq -n -o=ini '.Match.MACAddress = strenv(INT_MAC) | .Link.Name = "eth0"' > "$INT_CONF_L2_PATH"
+  touch "$INT_CONF_L3_PATH"
+  chown root:root "$INT_CONF_L3_PATH"
+  chmod 644 "$INT_CONF_L3_PATH"
+  yqq -n -o=ini "$YQQ_QUERY" > "$INT_CONF_L3_PATH"
+  systemctl enable systemd-networkd >/dev/null
+  systemctl mask networking --quiet
+  reboot
+else
+  yqq -i -p=ini -o=ini "$YQQ_QUERY" "$INT_CONF_L3_PATH"
+  systemctl restart systemd-networkd
+fi
+
+===============================================================================================================================================================================================
+
+Install-Apt-Repo :
+
+#!/bin/bash
+set -Eeuo pipefail
+
+usage() {
+  printf ' %s --repo { debian | wazuh } --mirror { local | official }\n' "$0"
+}
+
+REPO_NAME=""
+REPO_MIRROR=""
+
+ARGS=$(getopt --long addr:,gateway:,help -- "$@")
+eval set -- "$ARGS"
+
+while true; do
+  case "$1" in
+    --repo)
+      REPO_NAME="$2"
+      shift 2 ;;
+    --mirror)
+      REPO_MIRROR="$2"
+      shift 2 ;;
+    --help)
+      usage
+      exit 1 ;;
+    --)
+      shift
+      break ;;
+    *)
+      usage
+      exit 1 ;;
+  esac
+done
+
+REPO_SUITES="stable"
+REPO_KEY="${REPO_NAME}-${REPO_MIRROR}"
+
+if [[ -n "$REPO_NAME" ]]
+then
+  case "$REPO_NAME" in
+    debian)
+      DEB_CN="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+      ;;
+    wazuh)
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+else
+  usage
+  exit 1
+fi
+
+if [[ -n "$REPO_MIRROR" ]]
+then
+  case "$REPO_MIRROR" in
+    official)
+      if [[ "$REPO_NAME" == "debian" ]]
+      then
+        REPO_URL="https://deb.debian.org/debian"
+        REPO_SUITES="$DEB_CN ${DEB_CN}-updates"
+        SOURCE1="\nTypes: deb\nURIs: ${REPO_URL}\nSuites: ${REPO_SUITES}\nComponents: main\nSigned-By: /usr/share/keyrings/${REPO_KEY}.gpg\n"
+        REPO_URL="https://security.debian.org/debian-security"
+        REPO_SUITES="${DEB_CN}-security"
+        SOURCE2="\nTypes: deb\nURIs: ${REPO_URL}\nSuites: ${REPO_SUITES}\nComponents: main\nSigned-By: /usr/share/keyrings/${REPO_KEY}.gpg\n"
+        printf "${SOURCE1}${SOURCE2}" | tee /etc/apt/sources.list.d/debian-archive-keyring.sources > /dev/null
+        exit 0
+      else
+        REPO_URL="https://packages.wazuh.com/4.x/apt"
+      fi
+      ;;
+    local)
+      REPO_URL_PREFIX="http://deb.debian.internal/"
+      REPO_URL="${REPO_URL_PREFIX}${REPO_NAME}"
+      if [[ "$REPO_NAME" == "debian" ]]
+      then
+        REPO_SUITES="$DEB_CN"
+      fi
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+else
+  usage
+  exit 1
+fi
+
+printf "\nTypes: deb\nURIs: ${REPO_URL}\nSuites: ${REPO_SUITES}\nComponents: main\nSigned-By: /usr/share/keyrings/${REPO_KEY}.gpg\n" | tee "/etc/apt/sources.list.d/${REPO_KEY}.sources" > /dev/null
+
+Install-Script-Tools :
+
+#!/bin/bash
+set -Eeuo pipefail
+
+Config-NTP :
+
+Chrony
+
+Config-DNS :
+
+#!/bin/bash
+set -Eeuo pipefail
+
+usage() {
+  printf ' %s --srv1 1.1.1.1 [ --srv2 8.8.8.8 ]\n' "$0"
+}
+
+DNS_SRV1=""
+DNS_SRV2=""
+
+ARGS=$(getopt --long srv1:,srv2:,help -- "$@")
+eval set -- "$ARGS"
+
+while true; do
+  case "$1" in
+    --srv1)
+      DNS_SRV1="$2"
+      shift 2 ;;
+    --srv2)
+      DNS_SRV2="$2"
+      shift 2 ;;
+    --help|*)
+      usage
+      exit 1 ;;
+    --)
+      shift
+      break ;;
+  esac
+done
+
+PKG_LIST=("systemd-resolved")
+
+for PKG in "${PKG_LIST[@]}"
+do
+  if ! dpkg -s "$PKG" >/dev/null 2>&1
+  then
+    apt install ./"${PKG}"*.deb
+  fi
+done
+
+systemctl enable --now systemd-resolved >/dev/null
+
+  RESOLVED_CONF_PATH="/run/systemd/resolve/resolv.conf"
+  if [[ ! -L "/etc/resolv.conf" ]]
+  then
+    ln -sf "$RESOLVED_CONF_PATH" /etc/resolv.conf
+  else
+    if [[ "$(readlink -f /etc/resolv.conf)" != "$RESOLVED_CONF_PATH" ]]
+    then
+      ln -sf "$RESOLVED_CONF_PATH" /etc/resolv.conf
+    fi  
+  fi
+
+
+
+if [[ -z "$DNS_SRV1" ]]
+then
+  printf 'DNS Server Not Specified !\n' >&2
+  exit 1
+fi
+
+sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+
+control file :
+Depends: jq, libcap2-bin
+
+echo "Types: deb\nURIs: file:/opt/wazuh-local\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/wazuh-local.gpg" | sudo tee /etc/apt/sources.list.d/wazuh-local.sources
+
+sudo apt update
+
+
+
+
+Download-Packages :
+
+
+Create-Repo :
+
+sudo apt install dpkg-dev apt-utils
+
+
+#!/bin/bash
+set -Eeuo pipefail
+read -s -p "Enter Password : " GPG_PASS
+echo
+mkdir -p wazuh-local/dists/stable/main/binary-amd64/
+mkdir -p wazuh-local/pool/main/
+cp ./*.deb ./wazuh-local/pool/main/
+apt-ftparchive packages --sha512 --no-md5 --no-sha1 --no-sha256 ./wazuh-local/pool/main | zstd -q -f -o ./wazuh-local/dists/stable/main/binary-amd64/Packages.zst
+printf "s2k-cipher-algo AES256\ns2k-digest-algo SHA512\ncert-digest-algo SHA512\ns2k-count 65011712\ns2k-mode 3\nallow-loopback-pinentry" | tee "$HOME/.gnupg/gpg.conf" > /dev/null
+printf "Key-Type: eddsa\nKey-Curve: ed25519\nKey-Usage: sign\nName-Real: wazuh-local\nName-Email: wazuh@local\nExpire-Date: 0\n%%commit\n" | gpg --batch --pinentry-mode loopback --passphrase "$GPG_PASS" --generate-key
+rm "$HOME/.gnupg/gpg.conf"
+GPG_ID=$(gpg --batch --with-colons --list-secret-keys wazuh-local | jq -R -s 'split("\n") | map(select(startswith("fpr:"))) | .[0] | split(":")[9]')
+DEBIAN_CODE_NAME="$(lsb_release -cs)"
+DEBIAN_VERSION="$(. /etc/os-release && echo "$DEBIAN_VERSION")"
+apt-ftparchive --sha512 --no-md5 --no-sha1 --no-sha256 -o APT::FTPArchive::Release::Architectures=amd64 -o APT::FTPArchive::Release::Components=main -o APT::FTPArchive::Release::Suite="stable" -o APT::FTPArchive::Release::Codename="$DEBIAN_CODE_NAME" -o APT::FTPArchive::Release::Version="$DEBIAN_VERSION" release ./wazuh-local/dists/stable | gpg --batch --pinentry-mode loopback --passphrase "$GPG_PASS" -z0 --default-key "$GPG_ID" --clearsign -o ./wazuh-local/dists/stable/InRelease
+gpg --batch --pinentry-mode loopback --passphrase "$GPG_PASS" --export-secret-keys --armor "$GPG_ID" > wazuh-local-key.asc
+gpg --batch --yes --delete-secret-keys "$GPG_ID"
+gpg --batch --armor --export "$GPG_ID" | gpg --dearmor > wazuh-local.gpg
+gpg --batch --yes --delete-keys "$GPG_ID"
+tar -cf wazuh-local.tar ./wazuh-local
+rm -rf ./wazuh-local
+
+ca-certificates , debian-archive-keyring deb packages 
+
+the vps should have LVM installed
+
+Download-File :
+
+#!/bin/bash
+set -Eeuo pipefail
+
+usage() {
+  printf ' %s --name google.html --url https://google.com/index.html [ --quiet ]\n' "$0"
+}
+
+WGET_FILE_NAME=""
+WGET_FILE_URL=""
+WGET_QUIET=false
+
+ARGS=$(getopt --long quiet:,name:,url:,help -- "$@")
+eval set -- "$ARGS"
+
+while true; do
+  case "$1" in
+    --quiet)
+      WGET_QUIET=true
+      shift ;;
+    --name)
+      WGET_FILE_NAME="$2"
+      shift 2 ;;
+    --url)
+      WGET_FILE_URL="$2"
+      shift 2 ;;
+    --help)
+      usage
+      exit 1 ;;
+    --)
+      shift
+      break ;;
+    *)
+      usage
+      exit 1 ;;
+  esac
+done
+
+if ! Check-Apps wget
+then
+  
+fi
+
+Check-Packages 
+
+WGET_OPTS="--secure-protocol=TLSv1_3 --tries=1 --timeout=5 "
+
+if [[ "$WGET_QUIET" == true ]]
+then
+  WGET_OPTS+="-q "
+else
+  WGET_OPTS+="-nv --show-progress "
+fi
+
+if [[ -n "$WGET_FILE_NAME" ]]
+then
+  WGET_OPTS+="-O $WGET_FILE_NAME "
+else
+  usage
+  exit 1
+fi
+
+if [[ -n "$WGET_FILE_URL" ]]
+then
+  WGET_OPTS+="$WGET_FILE_URL "
+else
+  usage
+  exit 1
+fi
+
+wget $WGET_OPTS
 
 
 
@@ -286,6 +716,14 @@ defs.sh :
 
 #!/bin/bash
 
+FILE_PRESENT() {
+  local FILE_PATH="$1"
+  [[ -n "$FILE_PATH" && -f "$FILE_PATH" ]] || {
+    ERROR_MSG="${FILE_PATH} File NOT Found"
+    return 1
+  }
+}
+
 FILE_READABLE() {
   local FILE_PATH="$1"
   [[ -n "$FILE_PATH" && -f "$FILE_PATH" && -r "$FILE_PATH" ]] || {
@@ -294,7 +732,7 @@ FILE_READABLE() {
   }
 }
 
-FILE_WRITABLE() {
+FILE_WRITEABLE() {
   local FILE_PATH="$1"
   [[ -n "$FILE_PATH" && -f "$FILE_PATH" && -w "$FILE_PATH" ]] || {
     ERROR_MSG="${CONF_PATH} File WRITE Permission"
@@ -306,6 +744,22 @@ APP_EXECUTABLE() {
   local APP_PATH="$1"
   [[ -n "$APP_PATH" && -f "$APP_PATH" && -x "$APP_PATH" ]] || {
     ERROR_MSG="${APP_PATH} Application EXECUTE Permission"
+    return 1
+  }
+}
+
+DIR_PRESENT() {
+  local DIR_PATH="$1"
+  [[ -n "$DIR_PATH" && -d "$DIR_PATH" ]] || {
+    ERROR_MSG="${DIR_PATH} Directory NOT Found"
+    return 1
+  }
+}
+
+DIR_WRITEABLE() {
+  local DIR_PATH="$1"
+  DIR_PRESENT "$DIR_PATH" && [[ -w "$DIR_PATH" ]] || {
+    ERROR_MSG="${DIR_PATH} Directory WRITE Permission"
     return 1
   }
 }
@@ -371,7 +825,7 @@ UPDATE_PKGS_INDEX() {
     export NEEDRESTART_MODE="a"
     if SUDO apt-get update >/dev/null
     then
-      PKGS_INDEX_UPDATED=true
+      export PKGS_INDEX_UPDATED=true
     else
       ERROR_MSG="APT Packages Index Update Failed"
       return 1
@@ -417,8 +871,7 @@ sudo apt-get autoremove --purge -y >/dev/null
 
 
 
-sudo apt-get install debsums
-sudo debsums -s openssh-server
+
 
 sudo apt-get install --reinstall openssh-server ( KEEPS CONNECTION )
 or
@@ -429,27 +882,13 @@ sudo apt-get install openssh-server
 DEPENDANT_PKGS_LIST=($(apt-cache rdepends --installed libssl3t64 | sed -n 's/^[[:space:]]\+//p'))
 
 
-apt-get download 
 
-
-1. ca-certificates
-2. openssl
-3. libssl3t64 
-
-
-echo "sudo apt-get install -y openssh-server" | at now + 5 minutes
-atq
-atrm <job_id>
 
 
 
 sudo apt-get purge openssh-server openssh-sftp-server openssh-client
 sudo apt-get autoremove --purge
 sudo apt-get install openssh-server openssh-sftp-server openssh-client
-
-
-sudo apt-get install debsums
-sudo debsums -s openssh-server openssh-sftp-server openssh-client
 
 
 UPGRADE_PKG() {
