@@ -716,17 +716,111 @@ defs.sh :
 
 #!/bin/bash
 
+TARGET FILE | DIR , PARENT DIR
+
+
+test { -d | -f | -r | -w | -x } { FILE | DIR } : --- , --X
+
+cd DIR     : --X , --X
+cat FILE   : R-- , --X
+echo FILE  : -W- , --X
+./ FILE    : --X , --X
+chmod FILE : --- , --X ( sudo | root | owner )
+chmod DIR  : --- , --X ( sudo | root | owner )
+chown FILE : --- , --X ( sudo | root )
+chown DIR  : --- , --X ( sudo | root )
+ls DIR     : R-- , --X
+touch FILE : --- , -WX
+rm FILE    : --- , -WX
+mkdir      : --- , -WX
+rmdir      : --- , -WX
+rm -r      : --- , -WX ( --X SUB DIR )
+mv         : --- , -WX
+cp FILE    : R-- , --X -> --- , -WX
+cp -r DIR  : R-- , --X ( R-X SUB DIR ) -> -WX , -WX
+ln -s      : --- , -WX
+
+
+
+
+
+
+
+
+cd , cat , echo , script , chmod , chown : DIR EXECUTE
+ls : DIR READ + EXECUTE
+touch , rm , mkdir , rmdir , mv , cp , ln : DIR WRITE + EXECUTE 
+
+
+DIR READ    : getting file names list ( ls )
+DIR WRITE   : changing file names list ( touch , mkdir , mv , cp , rm , rmdir , ln )
+DIR EXECUTE : reading or writing or executing files under the dir by name (  )
+
+
+dir r : list file names
+dir x : access files by their name
+dir w : create or delete or rename files or dirs
+
+
+
+
+
+DIR_ACCESSIBLE() {
+  local DIR_PATH="$1"
+  [[ -n "$DIR_PATH" && -x "$DIR_PATH" ]] || {
+    ERROR_MSG="${DIR_PATH} Directory EXECUTE Permission"
+    return 1
+  }
+}
+
+PARENT_DIR_ACCESSIBLE() {
+  local DIR_PATH="$1"
+  local PARENT_DIR_PATH="$(dirname "$DIR_PATH")"
+  DIR_ACCESSIBLE "$PARENT_DIR_PATH" || return 1
+}
+
+
+
+DIR_PRESENT() {
+  local DIR_PATH="$1"
+  PARENT_DIR_ACCESSIBLE "$DIR_PATH" || return 1
+  [[ -d "$DIR_PATH" ]] || {
+    ERROR_MSG="${DIR_PATH:-<empty>} Directory NOT Found"
+    return 1
+  }
+}
+
+DIR_READABLE() {
+  local DIR_PATH="$1"
+  PARENT_DIR_ACCESSIBLE "$DIR_PATH" || return 1
+  [[ -r "$DIR_PATH" ]] || {
+    ERROR_MSG="${DIR_PATH} Directory READ Permission"
+    return 1
+  }
+}
+
+DIR_WRITEABLE() {
+  local DIR_PATH="$1"
+  PARENT_DIR_ACCESSIBLE "$DIR_PATH" || return 1 
+  [[ -w "$DIR_PATH" ]] || {
+    ERROR_MSG="${DIR_PATH} Directory WRITE Permission"
+    return 1
+  }
+}
+
 FILE_PRESENT() {
   local FILE_PATH="$1"
-  [[ -n "$FILE_PATH" && -f "$FILE_PATH" ]] || {
-    ERROR_MSG="${FILE_PATH} File NOT Found"
+  PARENT_DIR_ACCESSIBLE "$FILE_PATH" || return 1
+  [[ -f "$FILE_PATH" ]] || {
+    ERROR_MSG="${FILE_PATH:-<empty>} File NOT Found"
     return 1
   }
 }
 
 FILE_READABLE() {
   local FILE_PATH="$1"
-  [[ -n "$FILE_PATH" && -f "$FILE_PATH" && -r "$FILE_PATH" ]] || {
+  FILE_PRESENT "$FILE_PATH" || return 1
+  [[ -r "$FILE_PATH" ]] || {
     ERROR_MSG="${FILE_PATH} File READ Permission"
     return 1
   }
@@ -734,35 +828,118 @@ FILE_READABLE() {
 
 FILE_WRITEABLE() {
   local FILE_PATH="$1"
-  [[ -n "$FILE_PATH" && -f "$FILE_PATH" && -w "$FILE_PATH" ]] || {
-    ERROR_MSG="${CONF_PATH} File WRITE Permission"
+  FILE_PRESENT "$FILE_PATH" || return 1
+  [[ -w "$FILE_PATH" ]] || {
+    ERROR_MSG="${FILE_PATH} File WRITE Permission"
     return 1
   }
 }
 
-APP_EXECUTABLE() {
-  local APP_PATH="$1"
-  [[ -n "$APP_PATH" && -f "$APP_PATH" && -x "$APP_PATH" ]] || {
-    ERROR_MSG="${APP_PATH} Application EXECUTE Permission"
+FILE_EXECUTABLE() {
+  local FILE_PATH="$1"
+  FILE_PRESENT "$FILE_PATH" || return 1
+  [[ -x "$FILE_PATH" ]] || {
+    ERROR_MSG="${FILE_PATH} File EXECUTE Permission"
     return 1
   }
 }
 
-DIR_PRESENT() {
-  local DIR_PATH="$1"
-  [[ -n "$DIR_PATH" && -d "$DIR_PATH" ]] || {
-    ERROR_MSG="${DIR_PATH} Directory NOT Found"
+USER_DEFINED() {
+  local USER_NAME="$1"
+  if ! id "$FILE_OWNER_USER" >/dev/null 2>&1
+  then
+    ERROR_MSG="${USER_NAME} NOT Defind"
+    return 1
+  fi
+}
+
+chown "${FILE_OWNER_USER}:${FILE_OWNER_GROUP}" ./test.sh
+
+if [[ $# -eq 1 ]]
+then
+  local FILE_OWNER_USER="${SUDO_USER:-$(id -un)}"
+  local FILE_OWNER_GROUP="$(id -gn "$FILE_OWNER_USER")"
+fi
+
+if [[ $# -ge 2 ]]
+then
+  local FILE_OWNER_USER="$2"
+  local FILE_OWNER_GROUP="$(id -gn "$FILE_OWNER_USER")"
+fi
+
+
+
+SET_FILE_OWNER() {
+  local FILE_PATH="$1"
+
+}
+
+
+sudo chown "${SUDO_USER}:${SUDO_USER}" ./test.sh
+
+
+sajjad:sajjad
+
+alice:developers
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+GET_FILE_OWNER_ID() {
+  local FILE_PATH="$1"
+  local FILE_OWNER_ID="$2"
+  local PARENT_DIR="$(dirname "$FILE_PATH")"
+  DIR_SEARCHABLE "$PARENT_DIR" || return 1
+  FILE_PRESENT "$FILE_PATH" || return 1
+  printf -v "$FILE_OWNER_ID" '%s' "$(stat -c '%u' "$FILE_PATH")"
+}
+
+GET_FILE_OWNER_NAME() {
+  local FILE_PATH="$1"
+  local FILE_OWNER_NAME="$2"
+  local PARENT_DIR="$(dirname "$FILE_PATH")"
+  DIR_SEARCHABLE "$PARENT_DIR" || return 1
+  FILE_PRESENT "$FILE_PATH" || return 1
+  printf -v "$FILE_OWNER_NAME" '%s' "$(stat -c '%U' "$FILE_PATH")"
+}
+
+FILE_OWNED() {
+  local FILE_PATH="$1"
+  local USER_ID="$(id -u)"
+  local FILE_OWNER_ID
+  GET_FILE_OWNER_ID "$FILE_PATH" FILE_OWNER_ID || return 1
+  [[ "$USER_ID" -eq "$FILE_OWNER_ID" ]] || {
+    local FILE_OWNER_NAME
+    GET_FILE_OWNER_NAME "$FILE_PATH" FILE_OWNER_NAME || return 1
+    ERROR_MSG="${FILE_PATH} File OWNER IS ${FILE_OWNER_NAME}"
     return 1
   }
 }
 
-DIR_WRITEABLE() {
-  local DIR_PATH="$1"
-  DIR_PRESENT "$DIR_PATH" && [[ -w "$DIR_PATH" ]] || {
-    ERROR_MSG="${DIR_PATH} Directory WRITE Permission"
-    return 1
-  }
-}
+FILE_PERM
+
+SET_FILE_PERM
+
+
+
+
+stat -c '%a' "$PARENT_DIR"
+
+
+
 
 APP_INSTALLED() {
   local APP_NAME="$1"
