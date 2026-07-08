@@ -716,50 +716,67 @@ defs.sh :
 
 #!/bin/bash
 
-TARGET FILE | DIR , PARENT DIR
 
 
-test { -d | -f | -r | -w | -x } { FILE | DIR } : --- , --X
+chown is root or sudo only
 
-cd DIR     : --X , --X
-cat FILE   : R-- , --X
-echo FILE  : -W- , --X
-./ FILE    : --X , --X
-chmod FILE : --- , --X ( sudo | root | owner )
-chmod DIR  : --- , --X ( sudo | root | owner )
-chown FILE : --- , --X ( sudo | root )
-chown DIR  : --- , --X ( sudo | root )
-ls DIR     : R-- , --X
-touch FILE : --- , -WX
-rm FILE    : --- , -WX
-mkdir      : --- , -WX
-rmdir      : --- , -WX
-rm -r      : --- , -WX ( --X SUB DIR )
-mv         : --- , -WX
-cp FILE    : R-- , --X -> --- , -WX
-cp -r DIR  : R-- , --X ( R-X SUB DIR ) -> -WX , -WX
-ln -s      : --- , -WX
+Normal users file and directory permission :
 
 
+GET_FILE_PERM : chmod
+GET_FILE_OWNER : chmod , chown
+FILE_OWNER
+
+FILE_PERM_R
+FILE_PERM_W
+FILE_PERM_X
+
+DIR_PERM_X
+DIR_PERM_RX
+PARENT_DIR_PERM_X
+PARENT_DIR_PERM_RX
+PARENT_DIR_PERM_WX
 
 
+test      : PARENT_DIR_PERM_X
+stat      : PARENT_DIR_PERM_X
+
+cat       : PARENT_DIR_PERM_X && FILE_PERM_R
+
+echo      : PARENT_DIR_PERM_X && FILE_PERM_W
+
+script    : PARENT_DIR_PERM_X && FILE_PERM_X
+
+chmod     : PARENT_DIR_PERM_X && FILE_OWNER
+
+cd        : PARENT_DIR_PERM_X && DIR_PERM_X
+
+find      : PARENT_DIR_PERM_X && DIR_PERM_RX
+ls        : PARENT_DIR_PERM_X && DIR_PERM_RX
 
 
+touch     : PARENT_DIR_PERM_WX
+rm        : PARENT_DIR_PERM_WX
+mkdir     : PARENT_DIR_PERM_WX
+rmdir     : PARENT_DIR_PERM_WX
+lns       : PARENT_DIR_PERM_WX
+
+rmr       : PARENT_DIR_PERM_WX && DIR_PERM_RX
+
+cp        : 1 PARENT_DIR_PERM_X && FILE_PERM_R , 2 PARENT_DIR_PERM_WX
+cpr       : 1 PARENT_DIR_PERM_X && DIR_PERM_RX , 2 PARENT_DIR_PERM_WX
+mv        : 1 PARENT_DIR_PERM_WX , 2 PARENT_DIR_PERM_WX
 
 
-cd , cat , echo , script , chmod , chown : DIR EXECUTE
-ls : DIR READ + EXECUTE
-touch , rm , mkdir , rmdir , mv , cp , ln : DIR WRITE + EXECUTE 
-
-
-DIR READ    : getting file names list ( ls )
-DIR WRITE   : changing file names list ( touch , mkdir , mv , cp , rm , rmdir , ln )
-DIR EXECUTE : reading or writing or executing files under the dir by name (  )
-
-
-dir r : list file names
-dir x : access files by their name
-dir w : create or delete or rename files or dirs
+CHECK_PERMS() {
+  local OPERATION="$1"
+  local OPARG1="$2"
+  if [[ $# -eq 3 ]]
+  then
+    local OPARG2="$3"
+  fi
+  [[ "$EUID" -eq 0 ]] || {}
+}
 
 
 
@@ -853,7 +870,16 @@ USER_DEFINED() {
   fi
 }
 
-chown "${FILE_OWNER_USER}:${FILE_OWNER_GROUP}" ./test.sh
+
+
+
+
+
+
+SET_FILE_OWNER() {
+  local FILE_PATH="$1"
+
+}
 
 if [[ $# -eq 1 ]]
 then
@@ -869,25 +895,7 @@ fi
 
 
 
-SET_FILE_OWNER() {
-  local FILE_PATH="$1"
-
-}
-
-
-sudo chown "${SUDO_USER}:${SUDO_USER}" ./test.sh
-
-
-sajjad:sajjad
-
-alice:developers
-
-
-
-
-
-
-
+SUDO chown "${FILE_OWNER_USER}:${FILE_OWNER_GROUP}" "$FILE_PATH"
 
 
 
