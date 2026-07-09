@@ -624,6 +624,30 @@ CONF_HOSTS_UPDATE() {
   fi
 }
 
+ADD_HOST() {
+  local DOMAIN_NAME="$1"
+  local A_RECORD="$2"
+  local HOSTS_FILE_PATH="/etc/hosts"
+  local ACTIVE_LINES=$(grep -v -E '^[[:space:]]*#.*$' "$HOSTS_FILE_PATH")
+  local TARGET_LINES=$(printf '%s\n' "$ACTIVE_LINES" | grep -E '[[:space:]]'"$DOMAIN_NAME"'([[:space:]]|$)')
+  if [[ -n "$TARGET_LINES" ]]
+  then
+    local TARGET_LINES_COUNT=$(printf '%s\n' "$TARGET_LINES" | wc -l)
+    [[ $TARGET_LINES_COUNT -eq 1 ]] || {
+      ERROR_MSG="${DOMAIN_NAME} DUPLICATE Entries"
+      return 1
+    }
+    local DOMAIN_REGEX=${DOMAIN_NAME//./\\.}
+    if ! printf '%s\n' "$TARGET_LINES" | grep -q -E "^[[:space:]]*${A_RECORD//./\\.}[[:space:]].*[[:space:]]'"$DOMAIN_REGEX"'([[:space:]]|$)"
+    then
+      ERROR_MSG="${DOMAIN_NAME} Entry SYNTAX"
+      return 1
+    fi
+  else
+    printf '%s\n' "${A_RECORD} ${DOMAIN_NAME}" | sudo tee -a "$HOSTS_FILE_PATH" > /dev/null
+  fi
+}
+
 CONFIG_HOSTS() {
   local CFG_MODE="$1"
   local NEW_HOSTNAME="$2"

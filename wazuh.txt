@@ -1,0 +1,250 @@
+
+Indexer :
+https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-indexer/wazuh-indexer_4.14.5-1_amd64.deb
+
+Manager :
+https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-manager/wazuh-manager_4.14.5-1_amd64.deb
+
+FileBeat :
+https://packages.wazuh.com/4.x/apt/pool/main/f/filebeat/filebeat_7.10.2-2_amd64.deb
+
+Dashboard :
+https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-dashboard/wazuh-dashboard_4.14.5-1_amd64.deb
+
+Certs Tool :
+https://packages.wazuh.com/4.14/wazuh-certs-tool.sh
+
+
+use rsyslog or syslog-ng for tls termination of syslog before passing to wazuh .
+
+mapping :
+node-1 : wazuh-indexer
+wazuh-1 : wazuh-server
+dashboard : wazuh-dashboard
+
+Wazuh Single Node Behind TLS Reverse Proxy :
+
+Dashboard 443 TCP Bind ALL ( network.host: "0.0.0.0" )
+Indexer API 9200 TCP Bind Local Host ( network.host: "127.0.0.1" )
+Manager API 55000 TCP Bind Local Host ( network.host: "127.0.0.1" )
+Manager 514 TCP Bind Local Host ( network.host: "127.0.0.1" )
+
+
+
+
+
+DOMAIN_NAMES=("wazuh-indexer.internal" "wazuh-server.internal" "wazuh-dashboard.internal")
+A_RECORDS=("127.0.0.1" "127.0.0.1" "127.0.0.1")
+DOMAINS_COUNT=${#DOMAIN_NAMES[@]}
+for ((DOMAIN_Index=0; DOMAIN_Index<DOMAINS_COUNT; DOMAIN_Index++))
+do
+  DOMAIN_NAME="${DOMAIN_NAMES[$DOMAIN_Index]}"
+  A_RECORD="${A_RECORDS[$DOMAIN_Index]}"
+  ADD_HOST "$DOMAIN_NAME" "$A_RECORD" 
+done
+
+sudo timedatectl set-timezone Etc/UTC
+sudo timedatectl set-local-rtc 0
+sudo apt install chrony
+sudo sed -i '/^pool/s/^/#/' /etc/chrony/chrony.conf
+printf "server ${NTP_SERVER} iburst\n" | sudo tee "/etc/chrony/conf.d/10-${NTP_SERVER}.conf" > /dev/null
+sudo systemctl restart chrony
+if ! chronyc waitsync 10 >/dev/null 2>&1
+then
+  ERROR_MSG="NTP Server ${NTP_SERVER} SYNC FAILED"
+  exit 1
+fi
+
+
+#!/bin/bash
+set -Eeuo pipefail
+
+
+
+Wazuh-Config-Manager --generate-certs
+Wazuh-Config-Manager --install-certs { server | indexer | dashboard } --archive { Archive Path }
+Create-Deb-Package --source { FILE | DIR Path } --name { APT PKG Name } --version { X.Y.Z } --description { Download URL } [ --dependencies { APT PKG 1 } [ APT PKG 2]  ]
+
+
+
+
+/usr/lib/wazuh-config-manager :
+
+wazuh-certs-tool-4.14
+wazuh-config-manager-defs
+Wazuh-Config-Manager
+
+
+DIR_READABLE "$PWD" || return 1
+MY_USER_ID="$(id -u)"
+
+if [[ -f "$DEB_SOURCE" ]]
+then
+  APP_OWNER_ID="$(stat -c '%u' "$DEB_SOURCE")"
+  if [[ "$APP_OWNER_ID" -ne "$MY_USER_ID" ]]
+else
+fi
+
+if find "$DEB_SOURCE" ! -uid "$(id -u)" -print -quit | grep -q .
+then
+  mapfile -t SOURCE_NOT_OWNED_FILES < <( find "$DEB_SOURCE" ! -uid "$(id -u)" )
+  for SOURCE_NOT_OWNED_FILE in "${SOURCE_NOT_OWNED_FILES[@]}"
+  do
+    echo "$SOURCE_NOT_OWNED_FILE"
+  done
+fi
+
+shopt -s nullglob
+
+DEB_SOURCE_BIN="./${DEB_SOURCE}/usr/lib/${DEB_SOURCE}/bin"
+
+for DEB_APP_PATH in "$DEB_SOURCE_BIN"/*
+do
+  FILE_PRESENT DEB_APP_PATH || continue
+  DEB_APP_PATH
+  DEB_APP_NAME="$(basename "$DEB_APP_PATH")"
+  ln -s "../lib/${DEB_SOURCE}/bin/${DEB_APP_NAME}" "./${DEB_SOURCE}/usr/bin/${DEB_APP_NAME}"
+done
+
+
+Executables and Directories : 755
+Conf Files and libraries : 644
+Private Key for root and sudo : 600
+Private Key for specific application : 640 
+ 
+ln -s ../lib/wazuh-config-manager/Wazuh-Config-Manager ./wazuh-config-manager/usr/bin/Wazuh-Config-Manager
+
+$DEB_SOURCE
+$DEB_VERSION
+$DEB_DESCRIPTION
+$DEB_DEPENDS
+
+
+FILE_PRESENT $PKG_SOURCE
+
+
+rm -rf ./wazuh-cert-manager/
+rm -f wazuh-cert-manager_4.14.0-1_amd64.deb
+mkdir -p wazuh-cert-manager/DEBIAN
+printf "Package: wazuh-cert-manager\nVersion: 4.14.0\nDepends: gnupg, jq\nArchitecture: amd64\nDescription: https://packages.wazuh.com/4.14/wazuh-certs-tool.sh\nMaintainer: Debian Local <debian@local>\n" | tee ./wazuh-cert-manager/DEBIAN/control > /dev/null
+mkdir -p wazuh-cert-manager/usr/local/bin
+cp ./wazuh-crt-mgr ./wazuh-cert-manager/usr/local/bin/wazuh-crt-mgr
+chmod 755 ./wazuh-cert-manager/usr/local/bin/wazuh-crt-mgr
+dpkg-deb -Zzstd --build --root-owner-group ./wazuh-cert-manager wazuh-cert-manager_4.14.0-1_amd64.deb
+rm -rf ./wazuh-cert-manager
+
+
+===================================================================================================================================================================================================
+
+Indexer Install :
+
+#!/bin/bash
+set -Eeuo pipefail
+
+command -v gpg >/dev/null 2>&1 || exit 1
+[[ -f ./wazuh-certs-tool.sh ]] || exit 1
+[[ -x ./wazuh-certs-tool.sh ]] || chmod +x ./wazuh-certs-tool.sh
+
+rm -rf ./wazuh-certificates
+
+
+read -s -r -p "Enter Password : " GPG_PASS
+echo
+
+cat > config.yml <<'EOF'
+nodes:
+  indexer:
+    - name: wazuh-indexer
+      ip: "wazuh-indexer.internal"
+  server:
+    - name: wazuh-server
+      ip: "wazuh-server.internal"
+  dashboard:
+    - name: wazuh-dashboard
+      ip: "wazuh-dashboard.internal"
+EOF
+
+
+bash ./wazuh-certs-tool.sh -A
+
+rm -f ./wazuh-certificates-tool.log
+mv ./wazuh-certificates/wazuh-indexer.pem ./wazuh-certificates/indexer.pem
+mv ./wazuh-certificates/wazuh-indexer-key.pem ./wazuh-certificates/indexer-key.pem
+mv ./wazuh-certificates/wazuh-server.pem ./wazuh-certificates/filebeat.pem
+mv ./wazuh-certificates/wazuh-server-key.pem ./wazuh-certificates/filebeat-key.pem
+mv ./wazuh-certificates/wazuh-dashboard.pem ./wazuh-certificates/dashboard.pem
+mv ./wazuh-certificates/wazuh-dashboard-key.pem ./wazuh-certificates/dashboard-key.pem
+
+WAZUH_COMPONENTS=("wazuh-ca" "wazuh-indexer" "wazuh-server" "wazuh-dashboard")
+WAZUH_COMPONENTS_CERTS=(
+"./wazuh-certificates/root-ca.pem ./wazuh-certificates/root-ca.key"
+"./wazuh-certificates/root-ca.pem ./wazuh-certificates/indexer.pem ./wazuh-certificates/indexer-key.pem ./wazuh-certificates/admin.pem ./wazuh-certificates/admin-key.pem"
+"./wazuh-certificates/root-ca.pem ./wazuh-certificates/filebeat.pem ./wazuh-certificates/filebeat-key.pem"
+"./wazuh-certificates/root-ca.pem ./wazuh-certificates/dashboard.pem ./wazuh-certificates/dashboard-key.pem"
+)
+
+for WAZUH_COMP_Index in {0..3}
+do
+  ARCHIVE_NAME="${WAZUH_COMPONENTS[$WAZUH_COMP_Index]}.tar.gpg"
+  ARCHIVE_CERTS=(${WAZUH_COMPONENTS_CERTS[$WAZUH_COMP_Index]})
+  tar -c -f - "${ARCHIVE_CERTS[@]}" | gpg --batch --pinentry-mode loopback --passphrase-fd 3 --symmetric --cipher-algo AES256 --use-ocb-sym --compress-algo none --s2k-mode 3 --s2k-digest-algo SHA512 --s2k-count 65011712 -o "$ARCHIVE_NAME" 3<<<"$GPG_PASS"
+done
+
+rm -rf ./wazuh-certificates/
+
+
+
+
+
+
+
+
+
+
+
+sudo apt install ./wazuh-indexer*.deb
+
+sudo nano /etc/wazuh-indexer/opensearch.yml :
+
+edit :
+
+network.host: "127.0.0.1"
+node.name: "wazuh-indexer"
+cluster.initial_master_nodes:
+- "wazuh-indexer"
+plugins.security.ssl.transport.enforce_hostname_verification: true
+plugins.security.ssl.transport.resolve_hostname: true
+plugins.security.nodes_dn:
+- "CN=wazuh-indexer,OU=Wazuh,O=Wazuh,L=California,C=US"
+
+add :
+
+bootstrap.memory_lock: true
+
+sudo mkdir /etc/wazuh-indexer/certs/
+
+sudo cp root-ca.pem /etc/wazuh-indexer/certs/
+sudo cp indexer.pem /etc/wazuh-indexer/certs/
+sudo cp indexer-key.pem /etc/wazuh-indexer/certs/
+sudo cp admin.pem /etc/wazuh-indexer/certs/
+sudo cp admin-key.pem /etc/wazuh-indexer/certs/
+
+sudo chmod 500 /etc/wazuh-indexer/certs
+sudo find /etc/wazuh-indexer/certs -type f -exec chmod 400 {} +
+sudo chown -R wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/certs
+
+sudo mkdir -p /etc/systemd/system/wazuh-indexer.service.d/
+printf "[Service]\nLimitMEMLOCK=infinity\n" | sudo tee /etc/systemd/system/wazuh-indexer.service.d/wazuh-indexer.conf > /dev/null
+TOTAL_RAM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+TOTAL_RAM_GB=$((TOTAL_RAM_KB / 1024 / 1024))
+JVM_RAM_GB=$(((RAM_GB + 1) / 2))
+sudo sed -i "s|^-Xms.*$|-Xms${JVM_RAM_GB}g|" /etc/wazuh-indexer/jvm.options
+sudo sed -i "s|^-Xmx.*$|-Xmx${JVM_RAM_GB}g|" /etc/wazuh-indexer/jvm.options
+
+sudo systemctl daemon-reload
+sudo systemctl start wazuh-indexer
+sudo systemctl enable wazuh-indexer
+
+sudo /usr/share/wazuh-indexer/bin/indexer-security-init.sh
+
+curl -k -u admin https://127.0.0.1:9200 ( default password admin )
