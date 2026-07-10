@@ -1,4 +1,135 @@
 
+====== Main Script Syntax :
+
+#!/bin/bash
+source /usr/lib/bashutils/bashutils
+bashutils_init
+
+CMD || exit 1
+
+====== Bashutils :
+
+if [[ -v _bashutils_sourced ]]
+then
+  return
+fi
+readonly _bashutils_sourced
+
+bashutils_error_handler() {
+  [[ -z ${bashutils_error_message:-} ]] || {
+    printf '\n  MESSAGE : %s !' "$bashutils_error_message" >&2
+  }
+  printf '\n  COMMAND : %s' "$BASH_COMMAND" >&2
+  printf '\n  Call Stack Trace :' >&2
+  local bashutils_functions_index
+  for (( bashutils_functions_index=${#FUNCNAME[@]}-1; bashutils_functions_index -ge 1; bashutils_functions_index-- ))
+  do
+    printf '\n  %s() [%s:%s]\n' "${FUNCNAME[bashutils_functions_index]}" "${BASH_SOURCE[bashutils_functions_index]}" "${BASH_LINENO[bashutils_functions_index-1]}" >&2
+  done
+}
+
+# bashutils_init
+
+bashutils_init() {
+  if [[ -v _bashutils_initialized ]]
+  then
+    return
+  fi
+  readonly _bashutils_initialized
+  set -Eeuo pipefail
+  bashutils_error_message=""
+  trap bashutils_error_handler ERR
+}
+
+# _require_parameter parameter_name || return 1 
+
+_require_parameter() {
+  local param_name="$1"
+  [[ -n "$param_name" ]] || {
+    bashutils_error_message="${param_name} MISSING"
+    return 1
+  }
+  local -n param_ref="$param_name"
+  [[ -n "$param_ref" ]] || {
+    bashutils_error_message="${param_name} PARAMETER REQUIRED"
+    return 1
+  }
+}
+
+bashutils_usage() {
+  local bashutils_usage_banner="$1"
+  _require_parameter bashutils_usage_banner || return 1
+  printf '  %s\n' "$bashutils_usage_banner" "$0"
+}
+
+INT_IP_CIDR=""
+INT_GATEWAY=""
+
+
+/////////////////////////////
+/////////////////////////////
+automate cli options////////
+////////////////////////////
+////////////////////////////
+
+
+bashutils_opt_list
+
+
+bashutils_arguments=$(getopt --long addr:,gateway -- "$@")
+eval set -- "$bashutils_arguments"
+
+while true; do
+  case "$1" in
+    --addr)
+      INT_IP_CIDR="$2"
+      shift 2 ;;
+    --gateway)
+      INT_GATEWAY="$2"
+      shift 2 ;;
+    --)
+      shift
+      break ;;
+    *)
+      bashutils_usage "$bashutils_usage_banner"
+      exit 1 ;;
+  esac
+done
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -624,7 +755,8 @@ CONF_HOSTS_UPDATE() {
   fi
 }
 
-ADD_HOST() {
+
+ADD_STATIC_DNS_RECORD() {
   local DOMAIN_NAME="$1"
   local A_RECORD="$2"
   local HOSTS_FILE_PATH="/etc/hosts"
@@ -928,24 +1060,36 @@ SUDO chown "${FILE_OWNER_USER}:${FILE_OWNER_GROUP}" "$FILE_PATH"
 
 
 
-
+# GET_FILE_OWNER_ID FILE_OWNER_ID $FILE_PATH ; echo $FILE_PATH
 
 GET_FILE_OWNER_ID() {
-  local FILE_PATH="$1"
-  local FILE_OWNER_ID="$2"
+  local -n FILE_OWNER_ID="$1"
+  local FILE_PATH="$2"
   local PARENT_DIR="$(dirname "$FILE_PATH")"
   DIR_SEARCHABLE "$PARENT_DIR" || return 1
   FILE_PRESENT "$FILE_PATH" || return 1
-  printf -v "$FILE_OWNER_ID" '%s' "$(stat -c '%u' "$FILE_PATH")"
+  FILE_OWNER_ID=$(stat -c '%u' "$FILE_PATH")
 }
 
+# GET_FILE_OWNER_NAME FILE_OWNER_NAME $FILE_PATH ; echo $FILE_PATH
+
 GET_FILE_OWNER_NAME() {
-  local FILE_PATH="$1"
-  local FILE_OWNER_NAME="$2"
+  local -n FILE_OWNER_NAME="$1"
+  local FILE_PATH="$2"
   local PARENT_DIR="$(dirname "$FILE_PATH")"
-  DIR_SEARCHABLE "$PARENT_DIR" || return 1
-  FILE_PRESENT "$FILE_PATH" || return 1
-  printf -v "$FILE_OWNER_NAME" '%s' "$(stat -c '%U' "$FILE_PATH")"
+  # DIR_SEARCHABLE "$PARENT_DIR" || return 1
+  # FILE_PRESENT "$FILE_PATH" || return 1
+  FILE_OWNER_NAME=$(stat -c '%U' "$FILE_PATH")
+}
+
+
+
+AM_I_OWNER() {
+  local FILE_PATH="$1"
+  GET_FILE_OWNER_ID FILE_OWNER_ID $FILE_PATH
+  [[ $UID -eq $FILE_OWNER_ID ]] || {
+    return 1
+  }
 }
 
 FILE_OWNED() {
@@ -1008,20 +1152,51 @@ SUDO() {
 APP_AVAILABLE() {
   local APP_NAME="$1"
   [[ -n "$APP_NAME" ]] || return 1
-  if ! APP_INSTALLED "$APP_NAME" && ! APP_EXECUTABLE "./$APP_NAME"
+  if ! APP_INSTALLED "$APP_NAME" && ! FILE_EXECUTABLE "./$APP_NAME"
   then
     ERROR_MSG="${APP_NAME} Application Not Available"
     return 1
   fi
 }
 
-PKG_INSTALLED() {
+
+# GET_APP_DEB_PKG PKG_NAME $APP_NAME ; echo $PKG_NAME
+
+GET_APP_DEB_PKG() {
+  local -n PKG_NAME="$1"
+  local APP_NAME="$2"
+  if APP_INSTALLED "$APP_NAME"
+  then
+    local APP_PATH=$(command -v $APP_NAME)
+    PKG_NAME=$(dpkg-query --search "$APP_PATH" | cut -d: -f1)
+  else
+    REQUIRE_PKG apt-file || return 1
+    PKG_NAME=$(apt-file search "$APP_NAME" | cut -d: -f1)
+  fi
+}
+
+
+
+REQUIRE_FUNCTION() {
+  local FUNC_NAME="$1"
+  if ! declare -F "$FUNC_NAME" >/dev/null
+  then
+    ERROR_MESSAGE="${FUNC_NAME} NOT DEFINED"
+    return 1
+  fi
+}
+
+REQUIRE_PKG()
+
+
+
+IS_PKG_INSTALLED() {
   local PKG_NAME="$1"
   [[ -n "$PKG_NAME" ]] || {
     ERROR_MSG="Package Not Specified"
     return 1
   }
-  dpkg-query -W -f='${Status}' "$PKG_NAME" 2>/dev/null | grep -q "^install ok installed$" || {
+  dpkg-query -W -f='${Status}' "$PKG_NAME" 2>/dev/null | grep -q -E "^install ok installed$" || {
     ERROR_MSG="${PKG_NAME} Package Not Installed"
     return 1
   }
@@ -1151,14 +1326,7 @@ PROVIDE_APPS() {
 
 ===========================================================================================================================================================================================================
 
-#!/bin/bash
-set -Eeuo pipefail
-ERROR_MSG=""
-ERROR_HANDLER() {
-  printf "\n Error : %s !\n" "$ERROR_MSG" >&2
-}
-trap ERROR_HANDLER ERR
-source defs.sh
+
 
 usage() {
   local EXAMPLE_ARGS="make"
