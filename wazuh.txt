@@ -15,6 +15,39 @@ Certs Tool :
 https://packages.wazuh.com/4.14/wazuh-certs-tool.sh
 
 
+
+
+wazuh indexer : Lets Encrypt TLS cert , nftables nat pub ip 443 tcp -> local host 9200 from wazuh server ips 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ssl.certificate_authorities ????
+
+
+
+
+1 central wazuh indexer component
+1 central wazuh dashboard component
+1 wazuh server component per each site
+
+
+
+
+
+
+
+
 use rsyslog or syslog-ng for tls termination of syslog before passing to wazuh .
 
 mapping :
@@ -29,8 +62,15 @@ Indexer API 9200 TCP Bind Local Host ( network.host: "127.0.0.1" )
 Manager API 55000 TCP Bind Local Host ( network.host: "127.0.0.1" )
 Manager 514 TCP Bind Local Host ( network.host: "127.0.0.1" )
 
+/usr/lib/wazuh-config-manager :
 
+wazuh-certs-tool-4.14
+wazuh-config-manager-defs
+Wazuh-Config-Manager
 
+Wazuh-Config-Manager --generate-certs
+Wazuh-Config-Manager --install-certs { server | indexer | dashboard } --archive { Archive Path }
+Create-Deb-Package --source { FILE | DIR Path } --name { APT PKG Name } --version { X.Y.Z } --description { Download URL } [ --dependencies { APT PKG 1 } [ APT PKG 2 ]  ]
 
 
 DOMAIN_NAMES=("wazuh-indexer.internal" "wazuh-server.internal" "wazuh-dashboard.internal")
@@ -56,23 +96,16 @@ then
 fi
 
 
-#!/bin/bash
-set -Eeuo pipefail
-
-
-
-Wazuh-Config-Manager --generate-certs
-Wazuh-Config-Manager --install-certs { server | indexer | dashboard } --archive { Archive Path }
-Create-Deb-Package --source { FILE | DIR Path } --name { APT PKG Name } --version { X.Y.Z } --description { Download URL } [ --dependencies { APT PKG 1 } [ APT PKG 2]  ]
 
 
 
 
-/usr/lib/wazuh-config-manager :
 
-wazuh-certs-tool-4.14
-wazuh-config-manager-defs
-Wazuh-Config-Manager
+
+
+
+
+
 
 
 DIR_READABLE "$PWD" || return 1
@@ -247,4 +280,96 @@ sudo systemctl enable wazuh-indexer
 
 sudo /usr/share/wazuh-indexer/bin/indexer-security-init.sh
 
-curl -k -u admin https://127.0.0.1:9200 ( default password admin )
+
+
+
+Curl Download :
+curl -fsSL --compressed --connect-timeout 3
+
+
+Curl API Call :
+
+wazuh_username="admin"
+read -s -r -p "Enter Wazuh Password: " wazuh_password
+echo
+curl -fsS --connect-timeout 3 --config <(printf 'user = "%s:%s"\n' "$wazuh_username" "$wazuh_password")
+
+
+
+
+# get-cert-hash cert_hash $cert_content ; echo $cert_hash
+
+get-cert-hash() {
+  local -n cert_hash="$1"
+  local cert_content="$2"
+  cert_hash=$(openssl x509 -noout -fingerprint -sha256 -in <(printf '%s\n' "$cert_content") | cut -d= -f2)
+}
+
+get_wazuh_local_component_cert_hash()
+
+
+# verify_wazuh_remote_component_cert --local-component { indexer | server | dashboard } --remote-component --remote-domain --remote-cert-hash 
+
+
+local wazuh_local_component_name="$1"
+local wazuh_remote_component_domain_name="$2"
+local wazuh_remote_component_cert_hash="$3"
+
+local wazuh_component_names=("indexer" "server" "dashboard")
+local wazuh_component_storage_paths=("/etc/wazuh-indexer/certs" "/etc/filebeat/certs" "/etc/wazuh-dashboard/certs")
+local wazuh_component_cert_file_names=("indexer.pem" "filebeat.pem" "dashboard.pem")
+
+local wazuh_local_component_storage_path
+local wazuh_component_cert_file_name
+
+for wazuh_component_index in "${!wazuh_component_names[@]}"
+do
+  if [[ "${wazuh_component_names[wazuh_component_index]}" -eq "$wazuh_component_name" ]]
+  then
+    wazuh_component_storage_path="${wazuh_component_storage_paths[$wazuh_component_index]}"
+    wazuh_component_cert_file_name="${wazuh_component_cert_file_names[$wazuh_component_index]}"
+    break
+  fi
+done
+
+local wazuh_ca_cert_path="${wazuh_component_storage_path}/root-ca.pem"
+local wazuh_ca_cert_content="$(SUDO cat $wazuh_ca_cert_path)"
+
+local wazuh_component_cert_file_path="${wazuh_component_storage_path}/${wazuh_component_cert_file_name}"
+local wazuh_component_cert_file_content="$(SUDO cat $wazuh_component_cert_file_path)"
+
+
+
+
+
+
+
+
+
+
+
+timeout 5s openssl s_client -connect "${wazuh_component_domain_name}:443" -servername "$wazuh_component_domain_name" -verify_return_error -CAfile <(printf '%s\n' "$CA_PEM")  </dev/null 2>/dev/null 
+
+| openssl x509 -noout -fingerprint -sha256 | cut -d= -f2
+
+
+
+
+
+
+
+if response=$(curl -fsS --connect-timeout 3 -k -u admin "$URL")
+
+
+
+if ! jq -e '(.nodes | length == 1) and (.nodes[].process.mlockall == true)' <<<"$response" >/dev/null 
+
+
+
+curl -fsS --connect-timeout 3 -k -u admin https://wazuh-indexer.local:9200 ( default password admin )
+
+curl -fsS --connect-timeout 3 -k -u admin https://wazuh-indexer.local:9200/_cat/nodes?v
+
+curl -fsS --connect-timeout 3 -k -u admin "https://wazuh-indexer.local:9200/_nodes?filter_path=**.mlockall&pretty"
+
+jq -e '.nodes | to_entries[0].value.process.mlockall == true' >/dev/null
