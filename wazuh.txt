@@ -15,31 +15,81 @@ Certs Tool :
 https://packages.wazuh.com/4.14/wazuh-certs-tool.sh
 
 
+1 central wazuh indexer and dashboard
+1 wazuh server ( manager ) in each site
 
 
-wazuh indexer : Lets Encrypt TLS cert , nftables nat pub ip 443 tcp -> local host 9200 from wazuh server ips 
-
-
-
-
-
-
+wazuh indexer : Lets Encrypt signed TLS cert , Self Signed CA cert
+wazuh server(s) : Self Signed TLS cert , Lets Encrypt CA cert
 
 
 
+on destination , nftables dnat wazuh indexer pub ip tcp 443 -> wazuh indexer private ip tcp 9200   
+on source , nftables dant wazuh indexer pub ip tcp 9200 -> wazuh indexer pub ip tcp 443
+
+
+Use LEGO inside each website nginx container
+
+HTTP-01 Webroot Mapping : https://github.com/go-acme/lego
 
 
 
 
 
-ssl.certificate_authorities ????
+# https://nginx.debian.internal
+
+====== Docker File :
+
+
+FROM debian:trixie-slim
+
+COPY nginxx.gpg /etc/apt/keyrings/nginxx.gpg
+COPY nginxx.sources /etc/apt/sources.list.d/nginxx.sources
+COPY legoo.sources /etc/apt/sources.list.d/legoo.sources
+
+RUN set -eu; \
+  DEBIAN_FRONTEND=noninteractive apt-get update; \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nginx ca-certificates legoo; \
+  rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /usr/share/nginx/html/.well-known/acme-challenge
+
+STOPSIGNAL SIGQUIT
+
+COPY entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+RUN chmod +x /entrypoint.sh
+
+====== entrypoint.sh :
+
+#!/bin/sh
+nginx -g "daemon on;"
+
+lego --email="your-email@example.com" --domains="yourdomain.com" --http --http.webroot="/usr/share/nginx/html" run
+
+while true
+do
+  sleep 86400
+  lego --email="your-email@example.com" --domains="yourdomain.com" --http --http.webroot="/usr/share/nginx/html" renew && nginx -s reload
+done
 
 
 
 
-1 central wazuh indexer component
-1 central wazuh dashboard component
-1 wazuh server component per each site
+
+
+
+
+
+
+
+
+
+
+
+OpenSearch security plugin for the Indexer
+
+
 
 
 

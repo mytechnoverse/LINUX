@@ -1,4 +1,13 @@
 
+docker image : trixie-slim
+debootstrap image : --variant=minbase
+net install image : uncheck everything
+
+debootstrap and docker images only include packages with ( Essential: yes ) and their dependencies + apt package and its dependencies  
+
+
+
+
 ====== Main Script Syntax :
 
 #!/bin/bash
@@ -160,6 +169,11 @@ rm -rf ./awkk
 
 ===============================================================================================================================================================================================
 
+
+lego_version="5.2.2"
+curl -fsSL --compressed --connect-timeout 3 "https://github.com/go-acme/lego/releases/download/v${lego_version}/lego_v${lego_version}_linux_amd64.tar.gz"
+
+===============================================================================================================================================================================================
 
 JQ DEB Package :
 
@@ -1200,6 +1214,21 @@ IS_PKG_INSTALLED() {
     ERROR_MSG="${PKG_NAME} Package Not Installed"
     return 1
   }
+}
+
+is_package_essential() {
+  local package_name="$1"
+  if is_package_installed "$package_name"
+  then
+    if ! dpkg-query -W -f='${Package}\t${Essential}\n' "$package_name" 2>/dev/null | grep -q -E '^Essential[[:space:]]yes$'
+    then
+      exit 1
+    fi
+  else
+    if ! apt-cache show "$package_name" 2>/dev/null | grep -q -E '^Essential[[:space:]]yes$'
+    then
+    fi
+  fi
 }
 
 UPDATE_PKGS_INDEX() {
