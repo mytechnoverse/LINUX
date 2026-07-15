@@ -1,10 +1,4 @@
 
-docker image : trixie-slim
-debootstrap image : --variant=minbase
-net install image : uncheck everything
-
-debootstrap and docker images only include packages with ( Essential: yes ) and their dependencies + apt package and its dependencies  
-
 
 
 
@@ -65,46 +59,120 @@ _require_parameter() {
   }
 }
 
-bashutils_usage() {
-  local bashutils_usage_banner="$1"
-  _require_parameter bashutils_usage_banner || return 1
-  printf '  %s\n' "$bashutils_usage_banner" "$0"
-}
-
-INT_IP_CIDR=""
-INT_GATEWAY=""
 
 
-/////////////////////////////
-/////////////////////////////
-automate cli options////////
-////////////////////////////
-////////////////////////////
+
+_require_parameter help_banner || exit 1
 
 
-bashutils_opt_list
+# Create-Script-Template 
 
+Create-Script-Template :
 
-bashutils_arguments=$(getopt --long addr:,gateway -- "$@")
-eval set -- "$bashutils_arguments"
+#!/bin/bash
+source /usr/lib/bashutils/bashutils
+bashutils_init
 
-while true; do
+version="1.0.0"
+help_banner="--help-banner '--xyz --abc 123' --bool-options xyz --data-options abc --required-options abc --script-version 1.0.0"
+
+script_version=""
+script_help_banner=""
+
+data_options=()
+bool_options=()
+
+bashutils_options=$(getopt --longoptions help-banner:,bool-options:,data-options:,required-options:,script-version:,version,help -- "$@")
+eval set -- "$bashutils_options"
+
+while true
+do
   case "$1" in
-    --addr)
-      INT_IP_CIDR="$2"
+    --help-banner)
+      help_banner="$2"
       shift 2 ;;
-    --gateway)
-      INT_GATEWAY="$2"
+    --bool-options)
+      shift
+      while [[ $# -gt 0 && ${1:0:2} != "--" ]]
+      do
+        bool_options+=("$1")
+        shift
+      done ;;
+    ---data-options)
+      shift
+      while [[ $# -gt 0 && ${1:0:2} != "--" ]]
+      do
+        data_options+=("$1")
+        shift
+      done ;;
+    --required-options)
+      shift
+      while [[ $# -gt 0 && ${1:0:2} != "--" ]]
+      do
+        required_options+=("$1")
+        shift
+      done ;;
+    --script-version)
+      script_version="$2"
       shift 2 ;;
+    --version)
+      printf '%s' "$version"
+      exit 0 ;;
+    --help)
+      printf '  %s %s\n' "$0" "$help_banner"
+      exit 0 ;;
     --)
       shift
       break ;;
     *)
-      bashutils_usage "$bashutils_usage_banner"
+      bashutils_error_message="$0 SCRIPT INVALID OPTION $1"
       exit 1 ;;
   esac
 done
 
+script_template=$(cat <<EOF
+#!/bin/bash
+source /usr/lib/bashutils/bashutils
+bashutils_init
+
+version=$script_version
+help_banner=$script_help_banner
+
+
+
+
+EOF)
+
+script_options=""
+
+for bool_option in "${bool_options[@]}"
+do
+  script_options+="${bool_option},"
+  script_bool_variable_name="${bool_option//-/_}"
+  script_template+=$(cat <<EOF
+  $script_bool_variable_name=true
+  EOF)
+done
+
+for data_option in "${data_options[@]}"
+do
+  script_options+="${data_option}:,"
+  script_data_variable_name="${data_option//-/_}"
+  script_template+=$(cat <<EOF
+  $script_data_variable_name= ?????
+  EOF)
+done
+
+script_options="${script_options},version,help"
+
+script_options=$script_options
+
+
+
+
+
+
+\$
 
 
 
@@ -122,6 +190,56 @@ done
 
 
 
+
+
+
+
+
+
+
+docker image : trixie-slim
+debootstrap image : --variant=minbase
+net install image : uncheck everything
+
+debootstrap and docker images only include packages with ( Essential: yes ) and their dependencies + apt package and its dependencies  
+
+Use LEGO inside each website nginx container
+HTTP-01 Webroot Mapping : https://github.com/go-acme/lego
+
+====== Docker File :
+
+
+FROM debian:trixie-slim
+
+COPY nginxx.gpg /etc/apt/keyrings/nginxx.gpg
+COPY nginxx.sources /etc/apt/sources.list.d/nginxx.sources
+COPY legoo.sources /etc/apt/sources.list.d/legoo.sources
+
+RUN set -eu; \
+  DEBIAN_FRONTEND=noninteractive apt-get update; \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nginx ca-certificates legoo; \
+  rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /usr/share/nginx/html/.well-known/acme-challenge
+
+STOPSIGNAL SIGQUIT
+
+COPY entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+RUN chmod +x /entrypoint.sh
+
+====== entrypoint.sh :
+
+#!/bin/sh
+nginx -g "daemon on;"
+
+lego --email="your-email@example.com" --domains="yourdomain.com" --http --http.webroot="/usr/share/nginx/html" run
+
+while true
+do
+  sleep 86400
+  lego --email="your-email@example.com" --domains="yourdomain.com" --http --http.webroot="/usr/share/nginx/html" renew && nginx -s reload
+done
 
 
 

@@ -28,57 +28,6 @@ on destination , nftables dnat wazuh indexer pub ip tcp 443 -> wazuh indexer pri
 on source , nftables dant wazuh indexer pub ip tcp 9200 -> wazuh indexer pub ip tcp 443
 
 
-Use LEGO inside each website nginx container
-
-HTTP-01 Webroot Mapping : https://github.com/go-acme/lego
-
-
-
-
-
-# https://nginx.debian.internal
-
-====== Docker File :
-
-
-FROM debian:trixie-slim
-
-COPY nginxx.gpg /etc/apt/keyrings/nginxx.gpg
-COPY nginxx.sources /etc/apt/sources.list.d/nginxx.sources
-COPY legoo.sources /etc/apt/sources.list.d/legoo.sources
-
-RUN set -eu; \
-  DEBIAN_FRONTEND=noninteractive apt-get update; \
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nginx ca-certificates legoo; \
-  rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /usr/share/nginx/html/.well-known/acme-challenge
-
-STOPSIGNAL SIGQUIT
-
-COPY entrypoint.sh /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
-RUN chmod +x /entrypoint.sh
-
-====== entrypoint.sh :
-
-#!/bin/sh
-nginx -g "daemon on;"
-
-lego --email="your-email@example.com" --domains="yourdomain.com" --http --http.webroot="/usr/share/nginx/html" run
-
-while true
-do
-  sleep 86400
-  lego --email="your-email@example.com" --domains="yourdomain.com" --http --http.webroot="/usr/share/nginx/html" renew && nginx -s reload
-done
-
-
-
-
-
-
-
 
 
 
@@ -233,6 +182,41 @@ rm -rf ./wazuh-certificates
 
 read -s -r -p "Enter Password : " GPG_PASS
 echo
+
+wazuh_component_name="indexer"
+wazuh_component_cert_cn="wazuh-indexer"
+wazuh_component_cert_san="wazuh-indexer.internal"
+wazuh_server_type="master"
+
+yq_query='
+  .nodes[strenv(wazuh_component_name)][0].name = strenv(wazuh_component_cert_cn) |
+  .nodes[strenv(wazuh_component_name)][0].ip = strenv(wazuh_component_cert_san)
+'
+
+[[ -z "$wazuh_server_type" ]] || {
+  yq_query+=' |
+    .nodes.server[0].node_type = strenv(wazuh_server_type)
+  '
+}
+
+wazuh_component_name="$wazuh_component_name" \
+wazuh_component_cert_cn="$wazuh_component_cert_cn" \
+wazuh_component_cert_san="$wazuh_component_cert_san" \
+wazuh_server_type="$wazuh_server_type" \
+yq -n "$yq_query" | tee "$wazuh_cert_tool_config_file_path"
+
+
+
+--component { indexer | dashboard | server --server-type { master | worker } } --ca-key { Certificate Authority Private Key PATH }
+
+
+
+
+
+
+
+
+
 
 cat > config.yml <<'EOF'
 nodes:
