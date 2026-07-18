@@ -1,5 +1,45 @@
 
 
+declare local_variable_name="abc"
+declare -g global_variable_name="abc"
+declare -x exported_variable_name="xyz"
+declare -i integer_variable_name=1
+declare -l lowercase_variable_name="ABC"
+declare -r readonly_variable_name="1.0.0"
+declare -n refrence_variable_name=target_variable_name
+declare -a array_variable_name
+declare -A dictionary_variable_name
+
+
+
+
+
+
+
+
+# error_message "Download failed" curl -s "https://api.example.com/data"
+
+error_message() {
+  _bashutils_error_message="$1"
+  shift
+  "$@"
+  declare -i _bashutils_error_code=$?
+  (( _bashutils_error_code -eq 0 )) && _bashutils_error_message=""
+  return $_bashutils_error_code
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ====== Main Script Syntax :
@@ -12,52 +52,127 @@ CMD || exit 1
 
 ====== Bashutils :
 
-if [[ -v _bashutils_sourced ]]
-then
-  return
-fi
-readonly _bashutils_sourced
+# Bashutils Source Guard
 
-bashutils_error_handler() {
-  [[ -z ${bashutils_error_message:-} ]] || {
-    printf '\n  MESSAGE : %s !' "$bashutils_error_message" >&2
-  }
-  printf '\n  COMMAND : %s' "$BASH_COMMAND" >&2
+declare -p _bashutils_sourced &>/dev/null && return
+declare -g _bashutils_sourced
+
+# Bashutils Init Guard
+
+_bashutils_init_guard() {
+  declare -p _bashutils_initialized &>/dev/null && return
+  declare -g _bashutils_initialized
+}
+
+exit
+
+# trap _bashutils_error_handler ERR
+
+_bashutils_error_handler() {
+  declare -i _bashutils_error_code=$?
+  if [[ -n "$_bashutils_error_message" ]] && declare -p _bashutils_error_message &>/dev/null
+  then
+    printf '\n  MESSAGE : %s !' "$_bashutils_error_message" >&2
+  fi
+  (( _bashutils_error_code -eq 0 )) && return
+  if [[ -v BASH_COMMAND && -n "$BASH_COMMAND" ]]
+  then
+    printf '\n  COMMAND : %s' "$BASH_COMMAND" >&2
+  fi
+  [[ ! -v FUNCNAME ]] && return "$_bashutils_error_code"
+  declare -i _bashutils_functions_count
+  _bashutils_functions_count=${#FUNCNAME[@]}
+  (( $_bashutils_functions_count -lt 2 )) && return "$_bashutils_error_code"
+  [[ ! -v BASH_SOURCE || ! -v BASH_LINENO ]] && return "$_bashutils_error_code"
+  (( ${#BASH_SOURCE[@]} -lt _bashutils_functions_count || ${#BASH_LINENO[@]} -lt _bashutils_functions_count )) && return "$_bashutils_error_code"
   printf '\n  Call Stack Trace :' >&2
-  local bashutils_functions_index
+  declare -i bashutils_functions_index
   for (( bashutils_functions_index=${#FUNCNAME[@]}-1; bashutils_functions_index -ge 1; bashutils_functions_index-- ))
   do
-    printf '\n  %s() [%s:%s]\n' "${FUNCNAME[bashutils_functions_index]}" "${BASH_SOURCE[bashutils_functions_index]}" "${BASH_LINENO[bashutils_functions_index-1]}" >&2
+    printf '\n  %s() [%s:%s]' "${FUNCNAME[bashutils_functions_index]}" "${BASH_SOURCE[bashutils_functions_index]}" "${BASH_LINENO[bashutils_functions_index-1]}" >&2
   done
+  printf '\n' >&2
+  return "$_bashutils_error_code"
 }
 
 # bashutils_init
 
-bashutils_init() {
-  if [[ -v _bashutils_initialized ]]
-  then
-    return
-  fi
-  readonly _bashutils_initialized
+_bashutils_init() {
+  _bashutils_init_guard
   set -Eeuo pipefail
-  bashutils_error_message=""
-  trap bashutils_error_handler ERR
+  declare -g _bashutils_error_message
+  trap _bashutils_error_handler ERR
+}
+
+# _require_variable variable_name 
+
+_require_variable() {
+  declare variable_name="$1"
+  [[ -n "$variable_name" ]] || {
+    _bashutils_error_message="variable name required"
+    return 1
+  }
+  [[ -v variable_name ]] || {
+    _bashutils_error_message="${variable_name} variable required"
+    return 1
+  }
 }
 
 # _require_parameter parameter_name || return 1 
 
 _require_parameter() {
-  local param_name="$1"
-  [[ -n "$param_name" ]] || {
-    bashutils_error_message="${param_name} MISSING"
+  declare parameter_name="$1"
+  [[ -n "$parameter_name" ]] || {
+    bashutils_error_message="${parameter_name} missing"
     return 1
   }
-  local -n param_ref="$param_name"
-  [[ -n "$param_ref" ]] || {
-    bashutils_error_message="${param_name} PARAMETER REQUIRED"
+  declare -n parameter_refrence="$parameter_name"
+  [[ -n "$parameter_refrence" ]] || {
+    bashutils_error_message="${parameter_name} parameter required"
     return 1
   }
 }
+
+
+# curl || { curl_exit_code=$? }
+
+
+
+
+
+
+
+
+
+# _require_function function_name || return 1
+
+_require_function() {
+  local function_name="$1"
+  _require_parameter "$function_name"
+  if ! declare -F "$function_name" >/dev/null
+  then
+    bashutils_error_message="${function_name} function required"
+    return 1
+  fi
+}
+
+
+_require_parameter
+_require_function
+
+
+option_value=
+valid_values=("abc" "xyz")
+values_array=()
+
+
+
+
+option_name
+option_type
+option
+
+
 
 
 
@@ -1309,14 +1424,7 @@ GET_APP_DEB_PKG() {
 
 
 
-REQUIRE_FUNCTION() {
-  local FUNC_NAME="$1"
-  if ! declare -F "$FUNC_NAME" >/dev/null
-  then
-    ERROR_MESSAGE="${FUNC_NAME} NOT DEFINED"
-    return 1
-  fi
-}
+
 
 REQUIRE_PKG()
 
