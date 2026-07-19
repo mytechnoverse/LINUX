@@ -10,38 +10,6 @@ declare -n refrence_variable_name=target_variable_name
 declare -a array_variable_name
 declare -A dictionary_variable_name
 
-
-
-
-
-
-
-
-# error_message "Download failed" curl -s "https://api.example.com/data"
-
-error_message() {
-  _bashutils_error_message="$1"
-  shift
-  "$@"
-  declare -i _bashutils_error_code=$?
-  (( _bashutils_error_code -eq 0 )) && _bashutils_error_message=""
-  return $_bashutils_error_code
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ====== Main Script Syntax :
 
 #!/bin/bash
@@ -54,25 +22,190 @@ CMD || exit 1
 
 # Bashutils Source Guard
 
-declare -p _bashutils_sourced &>/dev/null && return
-declare -g _bashutils_sourced
+declare -p bashutils_sourced &>/dev/null && return
+declare -g bashutils_sourced
+declare -g bashutils_script_error
+declare -g bashutils_command_error
+declare -g bashutils_exit_code
 
 # Bashutils Init Guard
 
-_bashutils_init_guard() {
-  declare -p _bashutils_initialized &>/dev/null && return
-  declare -g _bashutils_initialized
+bashutils_init_guard() {
+  declare -p bashutils_initialized &>/dev/null && return
+  declare -g bashutils_initialized
 }
 
-exit
+# require_function_parameter "$parameter_name" || return 1
+
+require_function_parameter() {
+  declare parameter_name="$1"
+  [[ -z "$parameter_name" ]] && {
+    declare parent_function_name="${FUNCNAME[1]}"
+    bashutils_command_error="${parent_function_name} function required parameter missing"
+    return 1
+  }
+}
+
+# require_script_parameter "$parameter_name" || return 1
+
+require_script_parameter() {
+  declare parameter_name="$1"
+  if [[ -z "$parameter_name" ]] && {
+    declare main_script_name="$(basename "${BASH_SOURCE[0]}")"
+    bashutils_command_error="${main_script_name} script required parameter missing"
+    return 1
+  }
+}
+
+# is_variable_defined "$variable_name" || return 1
+
+is_variable_defined() {
+  declare variable_name="$1"
+  require_function_parameter "$variable_name" || return 1
+  if ! declare -p "$variable_name" &>/dev/null
+  then
+    bashutils_command_error="${variable_name} variable is not defined"
+    return 1
+  fi
+}
+
+is_variable_type_string() {
+  declare variable_name="$1"
+  require_function_parameter "$variable_name" || return 1
+  is_variable_defined "$variable_name" || return 1
+  declare_string_exclude_regex_pattern='^declare -[^[:space:]]*[aAi]'
+  if [[ $(declare -p "$variable_name" 2>/dev/null) =~ $declare_string_exclude_regex_pattern ]]
+  then
+    bashutils_command_error="${variable_name} variable type is not string"
+    return 1
+  fi
+}
+
+is_variable_string() {
+  declare variable_name="$1"
+  require_function_parameter "$variable_name" || return 1
+  is_variable_type_string "$variable_name" || return 1
+  declare -n variable_value="$variable_name"
+  [[ -z "$variable_value" ]] && {
+    bashutils_command_error="${variable_name} variable value ${variable_value} is not string"
+    return 1
+  }
+}
+
+is_variable_type_integer() {
+  declare variable_name="$1"
+  require_function_parameter "$variable_name" || return 1
+  is_variable_defined "$variable_name" || return 1
+  declare_integer_include_regex_pattern='^declare -[^[:space:]]*i'
+  if [[ ! $(declare -p "$variable_name" 2>/dev/null) =~ $declare_integer_include_regex_pattern ]]
+  then
+    bashutils_command_error="${variable_name} variable type is not integer"
+    return 1
+  fi
+}
+
+is_variable_integer() {
+  declare variable_name="$1"
+  require_function_parameter "$variable_name" || return 1
+  is_variable_type_integer "$variable_name" || return 1
+  declare -n variable_value="$variable_name"
+  integer_include_regex_pattern='^-?[0-9]+$'
+  if [[ ! "$variable_value" =~ $integer_include_regex_pattern ]]
+  then
+    bashutils_command_error="${variable_name} variable value ${variable_value} is not integer"
+    return 1
+  fi
+}
+
+is_variable_type_list() {
+  declare variable_name="$1"
+  require_function_parameter "$variable_name" || return 1
+  is_variable_defined "$variable_name" || return 1
+  declare_indexed_array_include_regex_pattern='^declare -[^[:space:]]*a'
+  if [[ ! $(declare -p "$variable_name" 2>/dev/null) =~ $declare_indexed_array_include_regex_pattern ]]
+  then
+    bashutils_command_error="${variable_name} variable type is not list ( indexed array )"
+    return 1
+  fi
+}
+
+is_variable_list()
+
+
+declare -n variable_value="$variable_name"
+(( ${#variable_value[@]} -gt 0 )) || {}
+
+
+is_variable_dictionary() {
+  declare variable_name="$1"
+  require_function_parameter "$variable_name" || return 1
+  is_variable_defined "$variable_name" || return 1
+  declare_associative_array_include_regex_pattern='^declare -[^[:space:]]*A'
+  if [[ ! $(declare -p "$variable_name" 2>/dev/null) =~ $declare_associative_array_include_regex_pattern ]]
+  then
+    bashutils_command_error="${variable_name} variable type is not dictionary ( associative array )"
+    return 1
+  fi
+}
+
+is_function_defined() {
+  declare function_name="$1"
+  require_function_parameter "$function_name" || return 1
+  if ! declare -F "$function_name" >/dev/null
+  then
+    bashutils_command_error="${function_name} function is not defined"
+    return 1
+  fi
+}
+
+///////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+bashutils_array_length() {
+  declare -n array_name="$1"
+  echo "${#array_name[@]}"
+}
+
+# printf '\n  MESSAGE : %s !' "$bashutils_script_error" >&2
 
 # trap _bashutils_error_handler ERR
 
-_bashutils_error_handler() {
-  declare -i _bashutils_error_code=$?
+bashutils_error_handler() {
+  declare -i bashutils_exit_code=$?
+  declare bashutils_error_message
+  if is_variable_assigned "$bashutils_script_error"
+  then
+    bashutils_error_message+=$(cat <<EOF
+      Script Error : $bashutils_script_error
+    EOF)
+  fi
+  if is_variable_assigned "$bashutils_command_error"
+  then
+    bashutils_error_message+=$(cat <<EOF
+      Command Error : $bashutils_script_error
+    EOF)
+  fi
+  if is_variable_assigned BASH_COMMAND
+  then
+    bashutils_error_message+=$(cat <<EOF
+      Bash Command  : $BASH_COMMAND
+    EOF)
+  fi
+
+
+
+
   if [[ -n "$_bashutils_error_message" ]] && declare -p _bashutils_error_message &>/dev/null
   then
-    printf '\n  MESSAGE : %s !' "$_bashutils_error_message" >&2
+    
   fi
   (( _bashutils_error_code -eq 0 )) && return
   if [[ -v BASH_COMMAND && -n "$BASH_COMMAND" ]]
@@ -95,6 +228,37 @@ _bashutils_error_handler() {
   return "$_bashutils_error_code"
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# try "Download failed" curl ...
+
+try() {
+  bashutils_script_error="$1"
+  shift
+  "$@"
+  bashutils_exit_code=$?
+  (( bashutils_exit_code -eq 0 )) && bashutils_script_error=""
+  return $bashutils_exit_code
+}
+
+
+
+
+
+
+
 # bashutils_init
 
 _bashutils_init() {
@@ -104,34 +268,7 @@ _bashutils_init() {
   trap _bashutils_error_handler ERR
 }
 
-# _require_variable variable_name 
 
-_require_variable() {
-  declare variable_name="$1"
-  [[ -n "$variable_name" ]] || {
-    _bashutils_error_message="variable name required"
-    return 1
-  }
-  [[ -v variable_name ]] || {
-    _bashutils_error_message="${variable_name} variable required"
-    return 1
-  }
-}
-
-# _require_parameter parameter_name || return 1 
-
-_require_parameter() {
-  declare parameter_name="$1"
-  [[ -n "$parameter_name" ]] || {
-    bashutils_error_message="${parameter_name} missing"
-    return 1
-  }
-  declare -n parameter_refrence="$parameter_name"
-  [[ -n "$parameter_refrence" ]] || {
-    bashutils_error_message="${parameter_name} parameter required"
-    return 1
-  }
-}
 
 
 # curl || { curl_exit_code=$? }
@@ -143,18 +280,6 @@ _require_parameter() {
 
 
 
-
-# _require_function function_name || return 1
-
-_require_function() {
-  local function_name="$1"
-  _require_parameter "$function_name"
-  if ! declare -F "$function_name" >/dev/null
-  then
-    bashutils_error_message="${function_name} function required"
-    return 1
-  fi
-}
 
 
 _require_parameter
