@@ -1,67 +1,169 @@
 
 
-declare local_variable_name="abc"
-declare -g global_variable_name="abc"
-declare -x exported_variable_name="xyz"
-declare -i integer_variable_name=1
-declare -l lowercase_variable_name="ABC"
-declare -r readonly_variable_name="1.0.0"
-declare -n refrence_variable_name=target_variable_name
-declare -a array_variable_name
-declare -A dictionary_variable_name
+integer comparison : (( { == | != | < | > | <= | >= } ))
+string comparison : [[ { == | != } ]]
+
+
+
+
+
+
+validate_vlan_id
+validate_transport_port
+validate_address_ipv4
+validate_address_ipv6
+validate_domain_name
+
 
 ====== Main Script Syntax :
 
 #!/bin/bash
-source /usr/lib/bashutils/bashutils
+source /usr/lib/bashutils/bashutils.bash
 bashutils_init
+function_name "variable_name" || return 1
 
-CMD || exit 1
 
-====== Bashutils :
+library convention :
 
-# Bashutils Source Guard
+function_name() {
+  require_parameter "$@" || return 1
+  is_variable_defined "$1" || return 1
+  declare "$declare_options_refrence" variable_name="$1"
+}
 
-declare -p bashutils_sourced &>/dev/null && return
+====== bashutils.bash :
+
+# Bash
+
+[ -n "${BASH_VERSION-}" ] || {
+  printf '  %s\n' 'bash shell required!' >&2
+  return 1 2>/dev/null || exit 1
+}
+
+# Source Guard
+
+declare -p bashutils_sourced &>/dev/null && return 0
 declare -g bashutils_sourced
+
 declare -g bashutils_script_error
 declare -g bashutils_command_error
 declare -g bashutils_exit_code
+declare -g bashutils_standard_error
 
-# Bashutils Init Guard
+declare -g declare_options_string="--"
+declare -g declare_options_string_lowercase="-l"
+declare -g declare_options_string_uppercase="-u"
+declare -g declare_options_integer="-i"
+declare -g declare_options_list="-a"
+declare -g declare_options_dictionary="-A"
+declare -g declare_options_reference="-n"
+declare -g declare_options_global="-g"
+declare -g declare_options_export="-x"
+
+
+
+
+require_debian() {
+  # -f , -r os_release_file_path
+  declare "$declare_options_string" os_release_file_path="/etc/os-release"
+  [[ "$(. "$os_release_file_path" && echo "$ID")" == "debian" ]] || {
+    bashutils_script_error="Debian Linux Required"
+    return 1
+  }
+}
+
+debian_version="$(. /etc/os-release && echo "$VERSION_ID")"
+debian_codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+
+get_debian_version
+require_debian_version
+
+get_debian_codename
+require_debian_codename
+
+
+
+
+
+
+
+
+
+
+
+# create_list list_variable_name element_1 element_2 ... 
+
+create_list() {
+  (( $# > 1 )) || {
+    bashutils_command_error="list name or element(s) not specified"
+    return 1
+  }
+  declare "$declare_options_reference" list_refrence=$1
+  shift
+  list_refrence=("$@")
+}
+
+# is_list_member list_variable_name abc
+
+is_list_member() {
+  (( $# == 2 )) || {
+    bashutils_command_error="list name or element not specified"
+    return 1
+  }
+  declare "$declare_options_reference" list_name="$1"
+  declare "$declare_options_reference" input_value="$2"
+  for list_element in "${list_name[@]}"
+  do
+    [[ "$list_element" == "$input_value" ]] && return 0
+  done
+  return 1
+}
+
+is_docker() {
+  [[ -f "/.dockerenv" ]]
+}
+
+is_podman() {
+  [[ -f "/run/.containerenv" ]]
+}
+
+is_container() {
+  is_docker || is_podman
+}
+
+is_virtual_machine() {
+  is_container && return 1 
+  sys_vendor_file_path="/sys/class/dmi/id/sys_vendor"
+  vendor_name="$(<"$sys_vendor_file_path")"
+  create_list virtualization_vendor_names 'QEMU' 'VMware, Inc.' 'Microsoft Corporation'
+  is_list_member virtualization_vendor_names vendor_name
+}
+
+is_physical() {
+  ! is_virtual_machine || return 1
+}
+
+# Init Guard
 
 bashutils_init_guard() {
   declare -p bashutils_initialized &>/dev/null && return
   declare -g bashutils_initialized
 }
 
-# require_function_parameter "$parameter_name" || return 1
+# require_parameter "$@" || return 1
 
-require_function_parameter() {
-  declare parameter_name="$1"
-  [[ -z "$parameter_name" ]] && {
-    declare parent_function_name="${FUNCNAME[1]}"
-    bashutils_command_error="${parent_function_name} function required parameter missing"
+require_parameter() {
+  (( $# == 1 )) || {
+    bashutils_command_error="${FUNCNAME[1]} function parameter error"
     return 1
   }
 }
 
-# require_script_parameter "$parameter_name" || return 1
-
-require_script_parameter() {
-  declare parameter_name="$1"
-  if [[ -z "$parameter_name" ]] && {
-    declare main_script_name="$(basename "${BASH_SOURCE[0]}")"
-    bashutils_command_error="${main_script_name} script required parameter missing"
-    return 1
-  }
-}
-
-# is_variable_defined "$variable_name" || return 1
+# is_variable_defined "$1" || return 1
 
 is_variable_defined() {
+  require_parameter "$@" || return 1
   declare variable_name="$1"
-  require_function_parameter "$variable_name" || return 1
   if ! declare -p "$variable_name" &>/dev/null
   then
     bashutils_command_error="${variable_name} variable is not defined"
@@ -71,7 +173,7 @@ is_variable_defined() {
 
 is_variable_type_string() {
   declare variable_name="$1"
-  require_function_parameter "$variable_name" || return 1
+  require_parameter "$variable_name" || return 1
   is_variable_defined "$variable_name" || return 1
   declare_string_exclude_regex_pattern='^declare -[^[:space:]]*[aAi]'
   if [[ $(declare -p "$variable_name" 2>/dev/null) =~ $declare_string_exclude_regex_pattern ]]
@@ -83,18 +185,23 @@ is_variable_type_string() {
 
 is_variable_string() {
   declare variable_name="$1"
-  require_function_parameter "$variable_name" || return 1
+  require_parameter "$variable_name" || return 1
   is_variable_type_string "$variable_name" || return 1
   declare -n variable_value="$variable_name"
-  [[ -z "$variable_value" ]] && {
+  [[ -n "$variable_value" ]] || {
     bashutils_command_error="${variable_name} variable value ${variable_value} is not string"
     return 1
   }
 }
 
+is_variable_boolean() {
+  declare variable_name="$1"
+
+}
+
 is_variable_type_integer() {
   declare variable_name="$1"
-  require_function_parameter "$variable_name" || return 1
+  require_parameter "$variable_name" || return 1
   is_variable_defined "$variable_name" || return 1
   declare_integer_include_regex_pattern='^declare -[^[:space:]]*i'
   if [[ ! $(declare -p "$variable_name" 2>/dev/null) =~ $declare_integer_include_regex_pattern ]]
@@ -106,7 +213,7 @@ is_variable_type_integer() {
 
 is_variable_integer() {
   declare variable_name="$1"
-  require_function_parameter "$variable_name" || return 1
+  require_parameter "$variable_name" || return 1
   is_variable_type_integer "$variable_name" || return 1
   declare -n variable_value="$variable_name"
   integer_include_regex_pattern='^-?[0-9]+$'
@@ -119,7 +226,7 @@ is_variable_integer() {
 
 is_variable_type_list() {
   declare variable_name="$1"
-  require_function_parameter "$variable_name" || return 1
+  require_parameter "$variable_name" || return 1
   is_variable_defined "$variable_name" || return 1
   declare_indexed_array_include_regex_pattern='^declare -[^[:space:]]*a'
   if [[ ! $(declare -p "$variable_name" 2>/dev/null) =~ $declare_indexed_array_include_regex_pattern ]]
@@ -138,7 +245,7 @@ declare -n variable_value="$variable_name"
 
 is_variable_dictionary() {
   declare variable_name="$1"
-  require_function_parameter "$variable_name" || return 1
+  require_parameter "$variable_name" || return 1
   is_variable_defined "$variable_name" || return 1
   declare_associative_array_include_regex_pattern='^declare -[^[:space:]]*A'
   if [[ ! $(declare -p "$variable_name" 2>/dev/null) =~ $declare_associative_array_include_regex_pattern ]]
@@ -150,7 +257,7 @@ is_variable_dictionary() {
 
 is_function_defined() {
   declare function_name="$1"
-  require_function_parameter "$function_name" || return 1
+  require_parameter "$function_name" || return 1
   if ! declare -F "$function_name" >/dev/null
   then
     bashutils_command_error="${function_name} function is not defined"
@@ -371,8 +478,8 @@ do
 done
 
 script_template=$(cat <<EOF
-#!/bin/bash
-source /usr/lib/bashutils/bashutils
+#!/usr/bin/bash
+source /usr/lib/bashutils/bashutils.bash
 bashutils_init
 
 version=$script_version
