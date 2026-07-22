@@ -1,10 +1,4 @@
 
-
-integer comparison : (( { == | != | < | > | <= | >= } ))
-string comparison  : [[ { == | != } ]]
-boolean comparison : [[ boolean_variable ]]
-
-
 # declare "$string_variable_option" variable_name='abc'
 # declare "$string_lowercase_variable_option" variable_name='ABC'
 # declare "$string_uppercase_variable_option" variable_name='abc'
@@ -13,6 +7,27 @@ boolean comparison : [[ boolean_variable ]]
 # declare "$boolean_variable_option" variable_name="$false"
 # declare "$list_variable_option" variable_name
 # assign_list variable_name 'abc' 'xyz' ... 
+
+# integer comparison : (( { == | != | < | > | <= | >= } ))
+# string comparison  : [[ { == | != } ]]
+# boolean comparison : (( ! && || ))
+
+# true_condition=$(( boolean_variable1 == boolean_variable2 ))
+# false_condition=$(( boolean_variable1 != boolean_variable2 ))
+# try "$error_message" (( ! true_condition && false_condition ))
+
+
+
+run : appends every non checking ( effective ) command that is run in terminal to a bash array
+
+
+
+
+
+
+
+
+
 
 
 
@@ -71,23 +86,13 @@ function_name() {
 
 ====== bashutils.bash :
 
-
-
-
-
-
-
-
-
 [ -n "${BASH_VERSION-}" ] || { return 1 2>/dev/null || exit 1 }
 declare -g bashutils_version='1.0.0'
 declare -p bashutils_sourced &>/dev/null && return 0
-declare -g bashutils_error_message
 declare -g -a bashutils_error_list
 declare -g bashutils_sourced
 
 declare -g global_variable_option="-g"
-declare "$global_variable_option" string_variable_option="--"
 declare "$global_variable_option" string_lowercase_variable_option="-l"
 declare "$global_variable_option" string_uppercase_variable_option="-u"
 declare "$global_variable_option" integer_variable_option="-i"
@@ -99,16 +104,20 @@ declare "$global_variable_option" export_variable_option="-x"
 declare "$global_variable_option" readonly_variable_option="-r"
 declare "$global_variable_option" "$boolean_variable_option" "$readonly_variable_option" true=0
 declare "$global_variable_option" "$boolean_variable_option" "$readonly_variable_option" false=1
+declare "$boolean_variable_option" true_condition
+declare "$boolean_variable_option" false_condition
+declare "$integer_variable_option" parent_function_index=1
+declare "$integer_variable_option" grand_parent_function_index=2
 
-# try command_name
+
+# try error_message command_name
 
 try() {
-  (($# >= 1)) || {
-    bashutils_error_list+=("error_message function requires an error message followed by a function or command or script name")
+  (($# >= 2)) || {
+    bashutils_error_list+=("try function requires an error message followed by a function or command or script name")
     return "$false"
   }
-  bashutils_error_list+=("$bashutils_error_message")
-  bashutils_error_message=""
+  bashutils_error_list+=("$1")
   shift
   "$@"
   declare "$integer_variable_option" bashutils_exit_code="$?"
@@ -122,9 +131,10 @@ try() {
 parameter_count() {
   declare "$integer_variable_option" target_parameter_count="$1"
   declare "$integer_variable_option" parameter_count="$#"
-  ((parameter_count = parameter_count - 1))
-  bashutils_error_message="${FUNCNAME[1]} function requires ${target_parameter_count} parameter(s)"
-  try (( target_parameter_count == parameter_count ))
+  parameter_count=$((parameter_count - 1))
+  true_condition=$(( target_parameter_count == parameter_count ))
+  declare parent_function_name="${FUNCNAME[$parent_function_index]}"
+  try "${parent_function_name} function requires ${target_parameter_count} parameter(s)" (( ! true_condition ))
 }
 
 # parameter_count_minimum 1 "$@" || return "$false"
@@ -132,13 +142,13 @@ parameter_count() {
 parameter_count_minimum() {
   declare "$integer_variable_option" minimum_parameter_count="$1"
   declare "$integer_variable_option" parameter_count="$#"
-  ((parameter_count = parameter_count - 1))
-  (( minimum_parameter_count <= parameter_count )) || {
-    bashutils_error_list+="${FUNCNAME[1]} function requires at least ${minimum_parameter_count} parameter(s)"
-    return "$false"
-  }
+  parameter_count=$((parameter_count - 1))
+  true_condition=$(( minimum_parameter_count <= parameter_count ))
+  declare parent_function_name="${FUNCNAME[$parent_function_index]}"
+  try "${parent_function_name} function requires at least ${minimum_parameter_count} parameter(s)" (( ! true_condition ))
 }
 
+---------------------------------------------------------------------------------------------------------------------------------
 
 
 
