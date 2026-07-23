@@ -1,16 +1,123 @@
 
-# declare "$string_variable_option" variable_name='abc'
-# declare "$string_lowercase_variable_option" variable_name='ABC'
-# declare "$string_uppercase_variable_option" variable_name='abc'
-# declare "$integer_variable_option" variable_name='123'
-# declare "$boolean_variable_option" variable_name="$true"
-# declare "$boolean_variable_option" variable_name="$false"
-# declare "$list_variable_option" variable_name
-# assign_list variable_name 'abc' 'xyz' ... 
+optionally use ( run error_message command_name command_args ... ) to specify error messages
 
-# integer comparison : (( { == | != | < | > | <= | >= } ))
-# string comparison  : [[ { == | != } ]]
-# boolean comparison : (( ! && || ))
+set -Eeuo pipefail
+
+declare -ga ERROR_STACK=()
+declare -ga ERROR_STACK_FUNCS=()
+declare -ga ERROR_STACK_FILES=()
+declare -ga ERROR_STACK_LINES=()
+
+try_push() {
+  local msg="$1"
+  local func="${FUNCNAME[1]:-main}"
+  local file="${BASH_SOURCE[1]:-script}"
+  local line="${BASH_LINENO[0]:-0}"
+    
+  ERROR_STACK+=("$msg")
+  ERROR_STACK_FUNCS+=("$func")
+  ERROR_STACK_FILES+=("$file")
+  ERROR_STACK_LINES+=("$line")
+}
+
+try_pop() {
+  if (( ${#ERROR_STACK[@]} > 0 ))
+  then
+    unset 'ERROR_STACK[-1]'
+    unset 'ERROR_STACK_FUNCS[-1]'
+    unset 'ERROR_STACK_FILES[-1]'
+    unset 'ERROR_STACK_LINES[-1]'
+    ERROR_STACK=("${ERROR_STACK[@]}")
+    ERROR_STACK_FUNCS=("${ERROR_STACK_FUNCS[@]}")
+    ERROR_STACK_FILES=("${ERROR_STACK_FILES[@]}")
+    ERROR_STACK_LINES=("${ERROR_STACK_LINES[@]}")
+  fi
+}
+
+run() {
+  local error_msg="$1"
+  shift
+  try_push "$error_msg"
+  "$@" 2>&1 || {
+    local exit_code=$?
+    return "$exit_code"
+  }
+  try_pop
+}
+
+error_handler() {
+    local line=$1
+    local exit_code=$2
+    local command="${BASH_COMMAND:-unknown}"
+    try_push "ERROR: command failed with exit code $exit_code"
+    if (( ${#ERROR_STACK[@]} > 0 )); then
+        local count=1
+        for (( i=${#ERROR_STACK[@]}-1; i>=0; i-- )); do
+            local func="${ERROR_STACK_FUNCS[$i]}"
+            local file="${ERROR_STACK_FILES[$i]}"
+            local line_num="${ERROR_STACK_LINES[$i]}"
+            local msg="${ERROR_STACK[$i]}"
+            
+            echo "[$count] ${func}() [${file}:${line_num}] : ${msg}" >&2
+            ((count++))
+        done
+    fi
+    
+    exit "$exit_code"
+}
+
+trap 'error_handler $LINENO $?' ERR
+
+Z() {
+  # ls /nonexistent/directory 2>/dev/null
+  run "Z: ls failed" ls /nonexistent/directory 2>/dev/null
+}
+
+Y() {
+  # Z
+  run "Y: Z failed" Z
+}
+
+X() {
+  # Y
+  run "X: Y failed" Y
+}
+
+main() {
+  X
+  # run "script failed" X
+}
+
+main "$@"
+
+===================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+undefine_aliases in exit_handler
+
+
+
+
+
+
+
+
+
+
+
 
 # true_condition=$(( boolean_variable1 == boolean_variable2 ))
 # false_condition=$(( boolean_variable1 != boolean_variable2 ))
@@ -50,9 +157,28 @@ is_variable_list
 is_variable_dictionary
 
 
+circular pattern :
 
+1. 
 
+a() {
+  b
+}
 
+b() {
+  a
+}
+
+a
+
+2. 
+
+a() { :; }
+b() { :; }
+
+a() {
+  b
+}
 
 
 
@@ -86,7 +212,7 @@ function_name() {
 
 ====== bashutils.bash :
 
-[ -n "${BASH_VERSION-}" ] || { return 1 2>/dev/null || exit 1 }
+
 declare -g bashutils_version='1.0.0'
 declare -p bashutils_sourced &>/dev/null && return 0
 declare -g -a bashutils_error_list
