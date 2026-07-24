@@ -1,27 +1,233 @@
+#!/usr/bin/bash
 
-# define_string variable_name='Abc'
-# define_string_readonly variable_name='Abc'
-# define_string_lowercase variable_name='abc'
-# define_string_uppercase variable_name='ABC'
+test -v bashutils_sourced && return
+declare string_opt=''
+declare string_lowercase_opt='-l'
+declare string_uppercase_opt='-u'
+declare boolean_opt='-i'
+declare integer_opt='-i'
+declare list_opt='-a'
+declare reference_opt='-n'
+declare global_opt='-g'
+declare exported_opt='-x'
+declare readonly_opt='-r'
+declare "$readonly_opt" bashutils_version='1.0.0'
+declare "$list_opt" bashutils_errors_list
+declare "$list_opt" bashutils_functions_list
+declare "$list_opt" bashutils_sources_list
+declare "$list_opt" bashutils_lines_list
+declare "$list_opt" bashutils_conditions_list
+declare "$list_opt" bashutils_commands_list
+declare "$readonly_opt" bashutils_sourced
 
-# define_integer variable_name=5
+declare "$boolean_opt" "$readonly_opt" function_true=0
+declare "$boolean_opt" "$readonly_opt" function_false=1
+declare "$boolean_opt" "$readonly_opt" variable_true=1
+declare "$boolean_opt" "$readonly_opt" variable_false=0
 
-# define_boolean variable_name=$function_true
-# define_boolean variable_name=$variable_true
-# define_boolean variable_name=$function_false
-# define_boolean variable_name=$variable_false
-# define_boolean_readonly variable_name=$variable_true
+declare "$integer_opt" current_function_index=0
+declare "$integer_opt" parent_function_index=1
 
-# define_variable_global variable_name
-# define_integer_global variable_name=5
-# define_string_global variable_name='Abc'
-# define_boolean_global variable_name=$variable_true
-# define_boolean_global_exported variable_name=$variable_true
+declare "$boolean_opt" true_conditions_list
+declare "$boolean_opt" false_conditions_list
+
+# 0 = true , 1 = false
+# and between true_conditions
+# or between false_conditions
+
+
+# put base on exit codes
+
+
+
+
+
+
+
+# (( 5 > 3 )) : 0
+# [[ 5 > 3 ]] : 0
+# $(( 5 > 3 )) : 1
+
+
+
+
+
+
+
+
+add_true_condition
+
+true_conditions_and() {}
+
+
+
+# parameter_count 1 "$@"
+
+parameter_count() {
+    true_condition=$(($# >= 2))
+    expect_error "function ( parameter_count ) requires at least 2 parameters" [[ $true_condition ]]
+    expect_error "function ( parameter_count ) first parameter ( $1 ) should be a positive number" is_value_integer_natural "$1"
+    declare "$integer_opt" target_parameter_count=$1
+    declare "$integer_opt" parameter_count=$#
+    parameter_count=$(( parameter_count - 1 ))
+    true_condition=$(( parameter_count == target_parameter_count ))
+    declare "$string_opt" parent_function_name="${FUNCNAME[1]}"
+    expect_error "function ( ${parent_function_name} ) requires ${target_parameter_count} parameter(s)" [[ $true_condition ]]
+}
+
+# parameter_count_minimum 1 "$@"
+
+parameter_count_minimum() {
+    true_condition=$(($# >= 2))
+    expect_error "function ( parameter_count ) requires at least 2 parameters" [[ $true_condition ]]
+    expect_error "function ( parameter_count ) first parameter ( $1 ) should be a positive number" is_value_integer_natural "$1"
+    declare "$integer_opt" minimum_parameter_count=$1
+    declare "$integer_opt" parameter_count=$#
+    parameter_count=$(( parameter_count - 1 ))
+    true_condition=$(( parameter_count >= minimum_parameter_count ))
+    declare "$string_opt" parent_function_name="${FUNCNAME[1]}"
+    expect_error "function ( ${parent_function_name} ) requires at least ${target_parameter_count} parameter(s)" [[ $true_condition ]]
+}
+
+# is_value_integer integer_value ( -1 : true , 0 : true , 1 : true )
+
+is_value_integer() {
+    parameter_count 1 "@"
+    expect_error "value ( $1 ) is not an integer" [[ "$1" =~ ^-?[0-9]+$ ]]
+}
+
+# is_value_integer_whole integer_value ( -1 : false , 0 : true , 1 : true ) 
+
+is_value_integer_whole() {
+    parameter_count 1 "@"
+    expect_error "value ( $1 ) is not a whole number" [[ "$1" =~ ^[0-9]+$ ]]
+}
+
+# is_vlaue_integer_natural integer_value ( -1 : false , 0 : false , 1 : true ) 
+
+is_value_integer_natural() {
+    parameter_count 1 "@"
+    expect_error "value ( $1 ) is not a natural number" [[ "$1" =~ ^[1-9][0-9]*$ ]]
+}
+
+# is_value_boolean boolean_value
+
+is_value_boolean() {
+    parameter_count 1 "@"
+    expect_error "value ( $1 ) is not a boolean" [[ "$1" =~ ^[01]$ ]]
+}
+
+# is_variable_declared variable_name
+
+is_variable_declared() {
+    parameter_count 1 "@"
+    expect_error "variable ( $1 ) is not declared" [[ -v "$1" ]]
+}
+
+# is_value_assigned value 
+
+is_value_assigned() {
+    parameter_count 1 "@"
+    expect_error "variable ( $1 ) is not assigned" [[ -n "$1" ]]
+}
+
+# is_string variable_name
+
+is_string() {
+    parameter_count 1 "@"
+    declare "$reference_opt" variable_reference="$1"
+    is_variable_declared "$1"
+    is_value_assigned "$variable_reference"
+}
+
+# is_integer variable_name
+
+is_integer_() {}
+
+
+
+
+is_list_assigned() {
+    [[ -v "$1" && -v "${1}[0]" ]]
+}
+
+-n "${array[0]}"
+
+# -n ( value )
+# ref then -n ( variable )
+
+is_scalar_variable_assigned() {
+
+}
+
+# ${#var[@]} -gt 0
+
+is_list_assigned
+
+
+# is_value_list ???
+
+# is variable_assigned variable_name
+
+
+# is_variable_type_string variable_name
+
+is_variable_type_string() {
+    parameter_count 1 "@"
+    is_variable_defined "$1"
+    declare "$string_opt" variable_definition
+    variable_definition=$(declare -p "$1" 2>/dev/null)
+    [[ "$variable_definition" =~ ^declare[[:space:]]-[^[:space:]]*[aAi] ]]
+    false_condition=$?
+    expect_error "variable ( $1 ) type is not string" [[ ! $false_condition ]]
+}
+
+is_variable_type_integer() {
+    parameter_count 1 "@"
+    is_variable_defined "$1"
+    declare "$string_opt" variable_definition
+    variable_definition=$(declare -p "$1" 2>/dev/null)
+    [[ "$variable_definition" =~ ^declare[[:space:]]-[^[:space:]]*i ]]
+    true_condition=$?
+    expect_error "variable ( $1 ) type is not integer" [[ $true_condition ]]
+}
+
+is_variable_type_boolean() {
+    parameter_count 1 "@"
+    is_variable_defined "$1"
+    declare "$string_opt" variable_definition
+    variable_definition=$(declare -p "$1" 2>/dev/null)
+    [[ "$variable_definition" =~ ^declare[[:space:]]-[^[:space:]]*i ]]
+    true_condition=$?
+    expect_error "variable ( $1 ) type is not boolean" [[ $true_condition ]]
+}
+
+
+
+
+
+
+
+# define_integer list_length_variable_name
+# get_list_length list_variable_name list_length_variable_name
+
+get_list_length() {
+    parameter_count 2 "@"
+    define_reference list_reference="$1"
+    define_reference list_length="$2"
+    list_length="${#list_reference[@]}"
+}
+
+# assign_integer
+
+
+# expect_error() { :; }
+# is_value_integer_positive() { :; }
+
+
 
 # define_list variable_name=()
 # assign_list variable_name 'abc' 'xyz'
-
-# define_reference refrence_name=variable_name 
 
 # (( integer == integer ))
 # (( integer != integer ))
@@ -38,180 +244,5 @@
 # [[ string == string ]]
 # [[ string != string ]]
 
-declare -p bashutils_sourced 2>/dev/null || return 1
-declare -r bashutils_version='1.0.0'
-declare -a bashutils_errors_list
-declare -a bashutils_functions_list
-declare -a bashutils_sources_list
-declare -a bashutils_lines_list
-declare -a bashutils_commands_list
-declare -r bashutils_sourced
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-define_aliases() {
-    shopt -s expand_aliases
-    alias define_variable_global='declare -g'
-    alias define_string='declare'
-    alias define_string_global='declare -g'
-    alias define_string_lowercase='declare -l'
-    alias define_string_uppercase='declare -u'
-    alias define_string_readonly='declare -r'
-    alias define_integer='declare -i'
-    alias define_integer_global='declare -ig'
-    alias define_boolean='declare -i'
-    alias define_boolean_readonly='declare -ir'
-    alias define_boolean_global='declare -ig'
-    alias define_boolean_global_exported='declare -igx'
-    alias define_list='declare -a'
-    alias define_reference='declare -n'
-    declare -gr bashutils_aliases_defined
-}
-
-define_boolean_readonly function_true=0
-define_boolean_readonly function_false=1
-define_boolean_readonly variable_true=1
-define_boolean_readonly variable_false=0
-
-define_integer current_function_index=0
-define_integer parent_function_index=1
-
-define_boolean true_condition
-define_boolean false_condition
-
-
-run() { :; }
-
-# parameter_count 1 "$@" || return $function_false
-
-parameter_count() {
-    define_integer target_parameter_count="$1"
-    define_integer parameter_count="$#"
-    parameter_count=$((parameter_count - 1))
-    true_condition=$(( target_parameter_count == parameter_count ))
-    define_string parent_function_name="${FUNCNAME[$parent_function_index]}"
-    (( true_condition )) || {
-        add_error_trace "${parent_function_name} function requires ${target_parameter_count} parameter(s)"
-    }
-}
-
-# is_variable_defined "$1" || return $function_false
-
-is_variable_defined() {
-    require_parameter 1 "$@" || return $function_false
-    define_string variable_name="$1"
-    true_condition=[[ declare -p $variable_name &>/dev/null ]]
-    (( true_condition )) || {
-        return 1
-    }
-}
-
-
-get_list_length() {
-    define_reference list_reference="$1"
-    define_reference list_length="$2"
-    list_length="${#list_reference[@]}"
-}
-
-remove_list_index() {
-    define_string list_name="$1"
-    define_integer list_index="$2"
-    get_list_length $list_name list_length
-    true_condition=$(( $((list_index + 1)) <= $list_length))
-    (( true_condition )) || {
-        return $function_false
-    }
-    unset 'list_name[-1]'
-    list_name=("${list_name[@]}")
-}
-
-append_list() {
-    define_reference list_reference="$1"
-    shift
-    list_reference+=("$@")
-}
-
-add_error_trace() {
-    append_list bashutils_errors_list "$1"
-    append_list bashutils_functions_list "${FUNCNAME[1]:-main}"
-    append_list bashutils_sources_list "${BASH_SOURCE[1]:-script}"
-    append_list bashutils_lines_list "${BASH_LINENO[0]:-0}"
-}
-
-try() {
-    define_string bashutils_error_message="$1"
-    shift
-    trace_error "$bashutils_error_message"
-    "$@" || return $function_false
-    define_integer bashutils_errors_count
-    get_list_length bashutils_errors_list bashutils_errors_count 
-    (( $bashutils_error_count < 0 )) || {
-        unset 'bashutils_errors_list[-1]'
-        unset 'bashutils_functions_list[-1]'
-        unset 'bashutils_sources_list[-1]'
-        unset 'bashutils_lines_list[-1]'
-        bashutils_errors_list=()
-    }
-}
-
-
-try_pop() {
-  if (( ${#ERROR_STACK[@]} > 0 ))
-  then
-    unset 'ERROR_STACK[-1]'
-    unset 'ERROR_STACK_FUNCS[-1]'
-    unset 'ERROR_STACK_FILES[-1]'
-    unset 'ERROR_STACK_LINES[-1]'
-    ERROR_STACK=("${ERROR_STACK[@]}")
-    ERROR_STACK_FUNCS=("${ERROR_STACK_FUNCS[@]}")
-    ERROR_STACK_FILES=("${ERROR_STACK_FILES[@]}")
-    ERROR_STACK_LINES=("${ERROR_STACK_LINES[@]}")
-  fi
-}
-
-try() {
-  local error_msg="$1"
-  shift
-  try_push "$error_msg"
-  if "$@"
-  then
-    try_pop
-  else
-    return 1
-  fi
-}
-
-
-
-
-
-
-
-
-
-
-
-
-undefine_aliases() {
-    (( ! bashutils_aliases_defined )) || {
-        unalias define_integer 2>/dev/null
-        bashutils_aliases_defined=variable_false
-    }
-}
-
-
-
-trap bashutils_exit_handler EXIT
 
 
