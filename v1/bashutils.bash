@@ -16,50 +16,17 @@ declare "$list_opt" bashutils_errors_list
 declare "$list_opt" bashutils_functions_list
 declare "$list_opt" bashutils_sources_list
 declare "$list_opt" bashutils_lines_list
-declare "$list_opt" bashutils_conditions_list
 declare "$list_opt" bashutils_commands_list
 declare "$readonly_opt" bashutils_sourced
 
-declare "$boolean_opt" "$readonly_opt" function_true=0
-declare "$boolean_opt" "$readonly_opt" function_false=1
 declare "$boolean_opt" "$readonly_opt" variable_true=1
 declare "$boolean_opt" "$readonly_opt" variable_false=0
 
+declare "$boolean_opt" "$readonly_opt" function_true=0
+declare "$boolean_opt" "$readonly_opt" function_false=1
+
 declare "$integer_opt" current_function_index=0
 declare "$integer_opt" parent_function_index=1
-
-declare "$boolean_opt" true_conditions_list
-declare "$boolean_opt" false_conditions_list
-
-# 0 = true , 1 = false
-# and between true_conditions
-# or between false_conditions
-
-
-# put base on exit codes
-
-
-
-
-
-
-
-# (( 5 > 3 )) : 0
-# [[ 5 > 3 ]] : 0
-# $(( 5 > 3 )) : 1
-
-
-
-
-
-
-
-
-add_true_condition
-
-true_conditions_and() {}
-
-
 
 # parameter_count 1 "$@"
 
@@ -131,13 +98,95 @@ is_value_assigned() {
     expect_error "variable ( $1 ) is not assigned" [[ -n "$1" ]]
 }
 
+# declare "$list_opt" function_name_conditions
+
+declare "$list_opt" is_string_conditions
+
+
+
+# requirement | exception
+
+
+# add_true_condition function_name_conditions command_name
+
+add_true_condition() {
+
+}
+
+add_false_condition() {}
+
+# add_false_condition function_name_conditions command_name
+# revert false conditions return code and append to same array
+
+
+
+
+
+# 0 = true , 1 = false
+# and between true_conditions
+
+get_logical_and() {
+
+}
+
+get_logical_or() {
+
+}
+
+
+
+AND :
+
+for cond in "${conditions[@]}"
+do
+    (( $1 != function_true ))
+done
+
+# or between false_conditions
+
+declare "$list_opt" function_name_false_conditions
+
+OR : 
+
+for cond in "${conditions[@]}"
+do
+    (( $1 == function_true ))
+done
+return $function_false
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # is_string variable_name
 
 is_string() {
     parameter_count 1 "@"
     declare "$reference_opt" variable_reference="$1"
+    declare "$list_opt" is_string_true_conditions
     is_variable_declared "$1"
+    append_list_elements is_string_true_conditions $?
     is_value_assigned "$variable_reference"
+    append_list_elements is_string_true_conditions $?
+
 }
 
 # is_integer variable_name
@@ -218,7 +267,56 @@ get_list_length() {
     list_length="${#list_reference[@]}"
 }
 
+# append_list_elements list_name list_element_value ...
+
+append_list_elements() {
+    parameter_count_minimum 2 "$@"
+    is_variable_type_list "$1"
+    declare "$list_opt" list_reference="$1"
+    shift
+    list_reference+=("$@")
+}
+
+# for_each_element() { echo "$1" }
+# for_loop list_name for_each_element
+
+for_loop() {
+    declare "$reference_opt" list_reference="$1"
+    declare "$string_opt" function_name="$2"
+    declare "$integer_opt" loop_break=$variable_false
+    declare "$integer_opt" list_index
+    for list_index in "${!list_reference[@]}"
+    do
+        "$function_name" "list_reference[$list_index]" "$list_index" loop_break
+        (( loop_break == $variable_false )) || {
+            break
+        }
+    done
+}
+
+for_each_element() {
+    declare "$reference_opt" list_element_value="$1"
+    declare "$integer_opt" list_index=$2
+    declare "$reference_opt" loop_break="$3"
+    # loop_break=$variable_true
+}
+
+
+
+
+
+
+
+
+
+
+
 # assign_integer
+
+
+
+
+
 
 
 # expect_error() { :; }

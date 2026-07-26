@@ -1,21 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # remove_list_index list_variable_name list_index
 
 remove_list_index() {
@@ -29,12 +11,6 @@ remove_list_index() {
     expect_error "list ( ${list_name} ) : list index ( ${list_index} ) bigger than list length ( ${list_length} )" (( true_condition ))
     unset 'list_name[-1]'
     list_name=("${list_name[@]}")
-}
-
-append_list() {
-    define_reference list_reference="$1"
-    shift
-    list_reference+=("$@")
 }
 
 add_error_trace() {
