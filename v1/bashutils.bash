@@ -28,6 +28,134 @@ declare "$boolean_opt" "$readonly_opt" function_false=1
 declare "$integer_opt" current_function_index=0
 declare "$integer_opt" parent_function_index=1
 
+
+
+
+run_command() {
+    append_list_elements bashutils_commands_list "$*"
+    "$@"
+}
+
+# declare "$boolean_opt" function_name_conditions_verdict
+# check_required_condition function_name_conditions_verdict condition
+
+add_required_condition() {
+    declare "$reference_opt" verdict_reference="$1"
+    shift
+    (( verdict_reference == $variable_true )) && {
+        "$@" 2>/dev/null || {
+            verdict_reference=$variable_false
+        }
+    }
+    return 0
+}
+
+# check_sufficient_condition function_name_conditions_verdict condition
+
+add_sufficient_condition() {
+    declare "$reference_opt" verdict_reference="$1"
+    shift
+    (( verdict_reference == $variable_false )) && {
+        "$@" 2>/dev/null && {
+            verdict_reference=$variable_true
+        }
+    }
+    return 0
+}
+
+FINAL WAY :
+==================================================================
+#!/bin/bash
+set -Eeuo pipefail
+
+declare -a bashutils_error_stack=()
+
+add_error() {
+    bashutils_error_stack+=("[${FUNCNAME[1]:-main}] $1")
+}
+
+# This will exit on failure because of set -e
+expect_error() {
+    local error_message="$1"
+    shift
+    "$@" 2>/dev/null || {
+        add_error "$error_message"
+        false  # Triggers set -e
+    }
+}
+
+# ERR trap shows the stack
+error_handler() {
+    local exit_code=$?
+    echo "=== Error Stack (exit code: $exit_code) ===" >&2
+    if (( ${#bashutils_error_stack[@]} > 0 )); then
+        for i in "${!bashutils_error_stack[@]}"; do
+            echo "  $((i+1)). ${bashutils_error_stack[i]}" >&2
+        done
+    else
+        echo "  (no error messages collected)" >&2
+    fi
+    echo "==========================================" >&2
+    exit $exit_code
+}
+
+trap error_handler ERR
+
+is_file_readable() {
+    [[ -r "$1" ]]
+}
+
+set_file_readable() {
+    local file_path="$1"
+    
+    is_file_readable "$file_path" && return 0
+    
+    # No || return 1 needed - set -e handles it
+    expect_error "file does not exist: $file_path" test -e "$file_path"
+    expect_error "failed to make file readable: $file_path" chmod +r "$file_path"
+}
+
+read_conf_file() {
+    local conf_file="$1"
+    
+    expect_error "cannot access config file: $conf_file" set_file_readable "$conf_file"
+    expect_error "failed to parse config: $conf_file" source "$conf_file"
+}
+
+init_application() {
+    local conf_dir="$1"
+    
+    expect_error "application initialization failed" read_conf_file "$conf_dir/app.conf"
+}
+
+main() {
+    init_application "/etc/myapp"
+    echo "Application started successfully"
+}
+
+main
+
+==================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # parameter_count 1 "$@"
 
 parameter_count() {
@@ -56,66 +184,120 @@ parameter_count_minimum() {
     expect_error "function ( ${parent_function_name} ) requires at least ${target_parameter_count} parameter(s)" [[ $true_condition ]]
 }
 
+# ||||||||||||||||| FINAL PATTERN ||||||||||||||||||||||||||| 
+
+
+# expect_error "variable ( $1 ) is not declared" is_variable_declared "$1"
+
+# is_variable_declared variable_name
+
+is_variable_declared() {
+    parameter_count 1 "$@"
+    [[ -v "$1" ]]
+}
+
+# get_variable_type variable_name variable_type
+
+get_variable_type() {
+    parameter_count 2 "$@"
+    declare "$string_opt" variable_name="$1"
+    declare "$reference_opt" type_reference="$2"
+    declare "$string_opt" variable_declaration
+    variable_declaration="$(declare -p "$variable_name" 2>/dev/null)"
+    declare "$list_opt" variable_types
+    append_list_elements variable_types string integer list dictionary
+    declare "$list_opt" declaration_regexes
+    append_list_elements declaration_regexes '[^[:space:]aAi]*' '[^[:space:]]*i' '[^[:space:]]*a' '[^[:space:]]*A'
+    for_each_declaration_regex() {
+        declare "$string_opt" declaration_regex
+        declaration_regex='^declare[[:space:]]-'"$list_element"'[[:space:]]'
+        if [[ "$variable_declaration" =~ $declaration_regex ]]
+        then
+            get_list_element variable_types $list_index type_reference
+            break_loop
+        fi
+    }
+    for_loop declaration_regexes for_each_declaration_regex
+}
+
+# is_variable_type { string | integer | list | dictionary } variable_name
+
+is_variable_type() {
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 # is_value_integer integer_value ( -1 : true , 0 : true , 1 : true )
 
 is_value_integer() {
-    parameter_count 1 "@"
+    parameter_count 1 "$@"
     expect_error "value ( $1 ) is not an integer" [[ "$1" =~ ^-?[0-9]+$ ]]
 }
 
 # is_value_integer_whole integer_value ( -1 : false , 0 : true , 1 : true ) 
 
 is_value_integer_whole() {
-    parameter_count 1 "@"
+    parameter_count 1 "$@"
     expect_error "value ( $1 ) is not a whole number" [[ "$1" =~ ^[0-9]+$ ]]
 }
 
 # is_vlaue_integer_natural integer_value ( -1 : false , 0 : false , 1 : true ) 
 
 is_value_integer_natural() {
-    parameter_count 1 "@"
+    parameter_count 1 "$@"
     expect_error "value ( $1 ) is not a natural number" [[ "$1" =~ ^[1-9][0-9]*$ ]]
 }
 
 # is_value_boolean boolean_value
 
 is_value_boolean() {
-    parameter_count 1 "@"
+    parameter_count 1 "$@"
     expect_error "value ( $1 ) is not a boolean" [[ "$1" =~ ^[01]$ ]]
 }
 
-# is_variable_declared variable_name
 
-is_variable_declared() {
-    parameter_count 1 "@"
-    expect_error "variable ( $1 ) is not declared" [[ -v "$1" ]]
-}
 
 # is_value_assigned value 
 
 is_value_assigned() {
-    parameter_count 1 "@"
+    parameter_count 1 "$@"
     expect_error "variable ( $1 ) is not assigned" [[ -n "$1" ]]
 }
 
-# declare "$list_opt" function_name_conditions
 
-declare "$list_opt" is_string_conditions
+: <<'EOF'
+declare "$list_opt" function_name_conditions
+add_true_condition function_name_conditions condition
+add_false_condition function_name_conditions condition
+EOF
 
 
 
-# requirement | exception
 
 
-# add_true_condition function_name_conditions command_name
+
 
 add_true_condition() {
+    parameter_count_minimum 2 "$@"
+    append_list_elements function_name_conditions 
+}
+
+add_false_condition() {
+    parameter_count_minimum 2 "$@"
 
 }
 
-add_false_condition() {}
-
-# add_false_condition function_name_conditions command_name
 # revert false conditions return code and append to same array
 
 
@@ -179,7 +361,7 @@ return $function_false
 # is_string variable_name
 
 is_string() {
-    parameter_count 1 "@"
+    parameter_count 1 "$@"
     declare "$reference_opt" variable_reference="$1"
     declare "$list_opt" is_string_true_conditions
     is_variable_declared "$1"
@@ -219,66 +401,62 @@ is_list_assigned
 # is variable_assigned variable_name
 
 
-# is_variable_type_string variable_name
 
-is_variable_type_string() {
-    parameter_count 1 "@"
-    is_variable_defined "$1"
-    declare "$string_opt" variable_definition
-    variable_definition=$(declare -p "$1" 2>/dev/null)
-    [[ "$variable_definition" =~ ^declare[[:space:]]-[^[:space:]]*[aAi] ]]
-    false_condition=$?
-    expect_error "variable ( $1 ) type is not string" [[ ! $false_condition ]]
+
+
+
+
+
+
+# get_list_element list_name list_index list_element
+
+get_list_element() {
+    parameter_count 3 "$@"
+    declare "$reference_opt" list_reference=$1
+    declare "$integer_opt" list_index=$2
+    declare "$reference_opt" element_reference=$3
+    element_reference=${list_reference[list_index]}
 }
 
-is_variable_type_integer() {
-    parameter_count 1 "@"
-    is_variable_defined "$1"
-    declare "$string_opt" variable_definition
-    variable_definition=$(declare -p "$1" 2>/dev/null)
-    [[ "$variable_definition" =~ ^declare[[:space:]]-[^[:space:]]*i ]]
-    true_condition=$?
-    expect_error "variable ( $1 ) type is not integer" [[ $true_condition ]]
+# is_list_element list_name value
+
+is_list_element() {
+    parameter_count 2 "$@"
+    declare "$string_opt" list_name=$1
+    declare "$string_opt" input_value=$2
+    declare "$boolean_opt" return_code=$function_false 
+    for_each_value() {
+        if [[ "$list_element" == "$input_value" ]]
+        then
+            return_code=$function_true
+            break_loop
+        fi
+    }
+    for_loop $list_name for_each_value
+    return $return_code
 }
 
-is_variable_type_boolean() {
-    parameter_count 1 "@"
-    is_variable_defined "$1"
-    declare "$string_opt" variable_definition
-    variable_definition=$(declare -p "$1" 2>/dev/null)
-    [[ "$variable_definition" =~ ^declare[[:space:]]-[^[:space:]]*i ]]
-    true_condition=$?
-    expect_error "variable ( $1 ) type is not boolean" [[ $true_condition ]]
-}
-
-
-
-
-
-
-
-# define_integer list_length_variable_name
-# get_list_length list_variable_name list_length_variable_name
+# get_list_length list_name list_length
 
 get_list_length() {
-    parameter_count 2 "@"
-    define_reference list_reference="$1"
-    define_reference list_length="$2"
-    list_length="${#list_reference[@]}"
+    parameter_count 2 "$@"
+    declare "$reference_opt" list_reference="$1"
+    declare "$reference_opt" list_length="$2"
+    list_length=${#list_reference[@]}
 }
 
 # append_list_elements list_name list_element_value ...
 
 append_list_elements() {
     parameter_count_minimum 2 "$@"
-    is_variable_type_list "$1"
-    declare "$list_opt" list_reference="$1"
+    declare "$reference_opt" list_reference="$1"
     shift
     list_reference+=("$@")
 }
 
-# for_each_element() { echo "$1" }
-# for_loop list_name for_each_element
+break_loop() {
+    loop_break_reference=$variable_true
+}
 
 for_loop() {
     declare "$reference_opt" list_reference="$1"
@@ -287,19 +465,35 @@ for_loop() {
     declare "$integer_opt" list_index
     for list_index in "${!list_reference[@]}"
     do
-        "$function_name" "list_reference[$list_index]" "$list_index" loop_break
+        declare "$reference_opt" list_element="list_reference[$list_index]"
+        declare "$reference_opt" loop_break_reference=loop_break
+        $function_name
         (( loop_break == $variable_false )) || {
             break
         }
     done
 }
 
-for_each_element() {
-    declare "$reference_opt" list_element_value="$1"
-    declare "$integer_opt" list_index=$2
-    declare "$reference_opt" loop_break="$3"
-    # loop_break=$variable_true
+for_loop_reverse() {
+    declare "$reference_opt" list_reference=$1
+    declare "$string_opt" function_name=$2
+    declare "$integer_opt" loop_break=$variable_false
+    declare "$integer_opt" list_index
+    declare "$string_opt" list_name=$1
+    declare "$integer_opt" list_length
+    get_list_length $list_name list_length
+    for (( list_index=list_length - 1 ; list_index >= 0 ; list_index-- ))
+    do
+        declare "$reference_opt" list_element="list_reference[$list_index]"
+        declare "$reference_opt" loop_break_reference=loop_break
+        $function_name
+        (( loop_break == $variable_false )) || {
+            break
+        }
+    done
 }
+
+
 
 
 
@@ -319,28 +513,54 @@ for_each_element() {
 
 
 
+
+: <<'EOF'
+
+=== Syntax :
+
+[[ string == string ]]
+[[ string != string ]]
+
+(( integer == integer ))
+(( integer != integer ))
+(( integer <= integer ))
+(( integer >= integer ))
+(( integer < integer ))
+(( integer > integer ))
+
+(( boolean ))
+(( ! boolean ))
+(( boolean && boolean ))
+(( boolean || boolean ))
+
+=== For Loop :
+
+for_each_element() {
+    # list_element
+    # list_index
+    # break_loop
+}
+
+for_loop list_name for_each_element
+
+=== Conditions :
+
+1 liner THEN : condition && { ... }
+1 liner ELSE : condition || { ... }
+Multi line THEN ELSE : if condition then ... else ... fi
+
+EOF
+
+
+
+
+
 # expect_error() { :; }
-# is_value_integer_positive() { :; }
-
-
 
 # define_list variable_name=()
 # assign_list variable_name 'abc' 'xyz'
 
-# (( integer == integer ))
-# (( integer != integer ))
-# (( integer <= integer ))
-# (( integer >= integer ))
-# (( integer < integer ))
-# (( integer > integer ))
 
-# (( boolean ))
-# (( ! boolean ))
-# (( boolean && boolean ))
-# (( boolean || boolean ))
-
-# [[ string == string ]]
-# [[ string != string ]]
 
 
 
