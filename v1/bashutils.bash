@@ -1,67 +1,174 @@
 #!/usr/bin/bash
 
 test -v bashutils_sourced && return
-declare string_opt=''
-declare string_lowercase_opt='-l'
-declare string_uppercase_opt='-u'
-declare boolean_opt='-i'
-declare integer_opt='-i'
+declare str_low_opt='-l'
+declare str_up_opt='-u'
+declare int_opt='-i'
 declare list_opt='-a'
-declare reference_opt='-n'
+declare ref_opt='-n'
 declare global_opt='-g'
 declare exported_opt='-x'
 declare readonly_opt='-r'
-declare "$readonly_opt" bashutils_version='1.0.0'
-declare "$list_opt" bashutils_errors_list
-declare "$list_opt" bashutils_functions_list
-declare "$list_opt" bashutils_sources_list
-declare "$list_opt" bashutils_lines_list
-declare "$list_opt" bashutils_commands_list
-declare "$readonly_opt" bashutils_sourced
+declare $readonly_opt bashutils_version='1.0.0'
+declare bashutils_standard_error
+declare $list_opt bashutils_commands_list
+declare $list_opt bashutils_errors_list
+declare $list_opt bashutils_functions_list
+declare $list_opt bashutils_sources_list
+declare $list_opt bashutils_lines_list
+declare $list_opt bashutils_codes_list
+declare $int_opt $readonly_opt variable_true=1
+declare $int_opt $readonly_opt variable_false=0
+declare $int_opt $readonly_opt function_true=0
+declare $int_opt $readonly_opt function_false=1
+declare $readonly_opt bashutils_sourced
 
-declare "$boolean_opt" "$readonly_opt" variable_true=1
-declare "$boolean_opt" "$readonly_opt" variable_false=0
+# log_command command_name
 
-declare "$boolean_opt" "$readonly_opt" function_true=0
-declare "$boolean_opt" "$readonly_opt" function_false=1
+log_command() {
+    parameter_count_minimum 1 "$@"
+    append_list_elements bashutils_commands_list "$*"
+}
 
-declare "$integer_opt" current_function_index=0
-declare "$integer_opt" parent_function_index=1
+# log_command command_name password
 
+log_command_masked() {
+    parameter_count_minimum 2 "$@"
+    declare command="$*"
+    log_command "${command% *} ********"
+}
 
+# catch_error ( execute command ) : get msg , append if return code was 1
+# delete errors list in check_condition
 
+execute_command() {
+    parameter_count_minimum 1 "$@"
+    declare $int_opt line_number
+    get_list_element BASH_LINENO 1 line_number
+    declare bash_source 
+    get_list_element BASH_SOURCE 2 bash_source
+    declare function_name
+    get_list_element FUNCNAME 2 function_name
+    declare $int_opt return_code=0
+    declare standard_error_temp_file_path=$(mktemp)
+    "$@" 1>/dev/null 2>"$standard_error_temp_file_path" || return_code=$?
+    (( return_code == function_true )) || {
+        append_list_elements bashutils_codes_list $return_code
+        append_list_elements bashutils_lines_list ${line_number:-0}
+        append_list_elements bashutils_sources_list ${bash_source:-bashutils.bash}
+        append_list_elements bashutils_functions_list ${function_name:-main}
+        bashutils_standard_error=$(<"$standard_error_temp_file_path")
+    }
+    rm -f "$standard_error_temp_file_path"
+    return $return_code
+}
 
 run_command() {
-    append_list_elements bashutils_commands_list "$*"
-    "$@"
+    parameter_count_minimum 1 "$@"
+    log_command "$@"
+    execute_command "$@"
 }
 
-# declare "$boolean_opt" function_name_conditions_verdict
-# check_required_condition function_name_conditions_verdict condition
+run_command_expect_error() {
+    parameter_count_minimum 2 "$@"
+    declare script_error="$1"
+    shift
+    log_command "$@"
+    declare $int_opt return_code=0
+    execute_command "$@" || return_code=$?
+    (( return_code == function_true )) || {
+        append_list_elements bashutils_errors_list "$script_error"
+    }
+    return $return_code
+}
+
+run_command_sensetive() {
+    parameter_count_minimum 2 "$@"
+    log_command_masked "$@"
+    execute_command "$@"
+}
+
+run_command_sensetive_expect_error() {
+    parameter_count_minimum 2 "$@"
+    declare script_error="$1"
+    shift
+    log_command_masked "$@"
+    declare $int_opt return_code=0
+    execute_command "$@" || return_code=$?
+    (( return_code == function_true )) || {
+        append_list_elements bashutils_errors_list "$script_error"
+    }
+    return $return_code
+}
+
+# declare $int_opt condition_code
+# check_condition condition_code condition
+
+check_condition() {
+    parameter_count_minimum 2 "$@"
+    declare $ref_opt return_code_ref=$1
+    return_code_ref=0
+    shift
+    declare standard_error_before="$bashutils_standard_error"
+    declare $list_opt bashutils_commands_list_before
+    copy_list bashutils_commands_list bashutils_commands_list_before
+    declare $list_opt bashutils_errors_list_before
+    copy_list bashutils_errors_list bashutils_errors_list_before
+    declare $list_opt bashutils_functions_list_before
+    copy_list bashutils_functions_list bashutils_functions_list_before
+    declare $list_opt bashutils_sources_list_before
+    copy_list bashutils_sources_list bashutils_sources_list_before
+    declare $list_opt bashutils_lines_list_before
+    copy_list bashutils_lines_list bashutils_lines_list_before
+    declare $list_opt bashutils_codes_list_before
+    copy_list bashutils_codes_list bashutils_codes_list_before
+    "$@" &>/dev/null || return_code_ref=$?
+    bashutils_standard_error="$standard_error_before"
+    copy_list bashutils_commands_list_before bashutils_commands_list
+    copy_list bashutils_errors_list_before bashutils_errors_list
+    copy_list bashutils_functions_list_before bashutils_functions_list
+    copy_list bashutils_sources_list_before bashutils_sources_list
+    copy_list bashutils_lines_list_before bashutils_lines_list
+    copy_list bashutils_codes_list_before bashutils_codes_list
+}
+
+# declare $int_opt conditions_verdict
+# check_required_condition conditions_verdict condition_code
 
 add_required_condition() {
-    declare "$reference_opt" verdict_reference="$1"
-    shift
-    (( verdict_reference == $variable_true )) && {
-        "$@" 2>/dev/null || {
-            verdict_reference=$variable_false
-        }
-    }
-    return 0
+    parameter_count 2 "$@"
+    declare $ref_opt verdict_ref=$1
+    declare $int_opt return_code=$2
+    [[ -z "$verdict_ref" ]] && verdict_ref=$function_true
+    (( verdict_ref == function_false )) && return
+    (( return_code == function_true )) || verdict_ref=$function_false
 }
 
-# check_sufficient_condition function_name_conditions_verdict condition
+# check_sufficient_condition conditions_verdict condition_code
 
 add_sufficient_condition() {
-    declare "$reference_opt" verdict_reference="$1"
-    shift
-    (( verdict_reference == $variable_false )) && {
-        "$@" 2>/dev/null && {
-            verdict_reference=$variable_true
-        }
-    }
-    return 0
+    parameter_count 2 "$@"
+    declare $ref_opt verdict_ref=$1
+    declare $int_opt return_code=$2
+    [[ -z "$verdict_ref" ]] && verdict_ref=$function_false
+    (( verdict_ref == function_true )) && return
+    (( return_code == function_true )) && verdict_ref=$function_true
 }
+
+# evaluate_conditions { verdict | code }
+
+evaluate_conditions() {
+    parameter_count 1 "$@"
+    declare $int_opt condition_code=$1
+    (( condition_code != function_true )) && return 1
+}
+
+
+
+
+
+
+
 
 FINAL WAY :
 ==================================================================
@@ -288,74 +395,6 @@ EOF
 
 
 
-add_true_condition() {
-    parameter_count_minimum 2 "$@"
-    append_list_elements function_name_conditions 
-}
-
-add_false_condition() {
-    parameter_count_minimum 2 "$@"
-
-}
-
-# revert false conditions return code and append to same array
-
-
-
-
-
-# 0 = true , 1 = false
-# and between true_conditions
-
-get_logical_and() {
-
-}
-
-get_logical_or() {
-
-}
-
-
-
-AND :
-
-for cond in "${conditions[@]}"
-do
-    (( $1 != function_true ))
-done
-
-# or between false_conditions
-
-declare "$list_opt" function_name_false_conditions
-
-OR : 
-
-for cond in "${conditions[@]}"
-do
-    (( $1 == function_true ))
-done
-return $function_false
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # is_string variable_name
@@ -406,7 +445,14 @@ is_list_assigned
 
 
 
+# copy_list list_name dest_variable
 
+copy_list() {
+    parameter_count 2 "$@"
+    declare $ref_opt list_ref=$1
+    declare $ref_opt dest_variable_ref=$2
+    dest_variable_ref=("${list_ref[@]}")
+}
 
 # get_list_element list_name list_index list_element
 
@@ -438,11 +484,44 @@ is_list_element() {
 
 # get_list_length list_name list_length
 
-get_list_length() {
+get_list_size() {
     parameter_count 2 "$@"
     declare "$reference_opt" list_reference="$1"
     declare "$reference_opt" list_length="$2"
     list_length=${#list_reference[@]}
+}
+
+# is_length_same list_1_name list_2_name
+
+are_lists_same_size() {
+    parameter_count 2 "$@"
+    declare list_1_name=$1
+    declare list_2_name=$2
+    declare $int_opt list_1_length
+    declare $int_opt list_2_length
+    get_list_size $list_1_name list_1_length
+    get_list_size $list_2_name list_2_length
+    (( list_1_length != list_2_length )) && return 1
+}
+
+# are_lists_same list_1_name list_2_name
+
+are_lists_same() {
+    parameter_count 2 "$@"
+    declare list_1_name=$1
+    declare list_2_name=$2
+    are_lists_same_size $list_1_name $list_2_name
+    declare $int_opt are_same=$function_true
+    for_each_element() {
+        declare list_2_element
+        get_list_element $list_2_name $list_index list_2_element 
+        [[ "$list_element" != "$list_2_element" ]] && {
+            are_same=$function_false
+            break_loop
+        }
+    }
+    for_loop $list_1_name for_each_element
+    (( are_same == function_false )) && return 1
 }
 
 # append_list_elements list_name list_element_value ...
