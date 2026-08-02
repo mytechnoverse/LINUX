@@ -27,15 +27,6 @@ wazuh server(s) : Self Signed TLS cert , Lets Encrypt CA cert
 on destination , nftables dnat wazuh indexer pub ip tcp 443 -> wazuh indexer private ip tcp 9200   
 on source , nftables dant wazuh indexer pub ip tcp 9200 -> wazuh indexer pub ip tcp 443
 
-
-
-
-
-
-
-
-
-
 OpenSearch security plugin for the Indexer
 
 

@@ -1,6 +1,7 @@
 #!/usr/bin/bash
 
 test -v bashutils_sourced && return
+
 declare str_low_opt='-l'
 declare str_up_opt='-u'
 declare int_opt='-i'
@@ -9,104 +10,124 @@ declare ref_opt='-n'
 declare global_opt='-g'
 declare exported_opt='-x'
 declare readonly_opt='-r'
+
 declare $readonly_opt bashutils_version='1.0.0'
-# declare bashutils_standard_error
-declare $list_opt bashutils_notifications_list
-declare $list_opt bashutils_commands_list
-declare $list_opt bashutils_errors_list
+
+declare bashutils_bash_source
+declare $int_opt bashutils_line_number
+declare bashutils_function_name
+declare $int_opt bashutils_return_code
+declare bashutils_standard_output_path
+declare bashutils_standard_error_path
+
+declare $list_opt bashutils_commands
+declare $list_opt bashutils_errors
+
 declare $int_opt $readonly_opt variable_true=1
 declare $int_opt $readonly_opt variable_false=0
 declare $int_opt $readonly_opt function_true=0
 declare $int_opt $readonly_opt function_false=1
+
+declare $int_opt bashutils_local_context=0
+declare $int_opt bashutils_parent_context=1
+declare $int_opt bashutils_grand_parent_context=2
+
 declare $readonly_opt bashutils_sourced
 
 # log_command command
 
 log_command() {
     parameter_count_minimum 1 "$@"
-    append_list_elements bashutils_commands_list "$*"
+    append_list_elements bashutils_commands "$*"
 }
 
 # log_command_masked command credentials
 
 log_command_masked() {
     parameter_count_minimum 2 "$@"
-    declare command="$*"
-    log_command "${command% *} ********"
+    declare bashutils_command="$*"
+    log_command "${bashutils_command% *} ********"
 }
 
+# set_command_context context_value
 
-
-
-
-
-####################################################################################### correct the call with namerefs
-
-
-
-
-
-# declare command_name
-# declare bash_source 
-# declare function_name
-# declare $int_opt line_number
-# get_command_context nest_level bash_source function_name line_number
-# log_error_context return_code standard_error_path bash_source function_name line_number
-# log_error_message error_message return_code standard_error_path bash_source function_name line_number
-
-get_command_context() {
-    parameter_count 4 "$@"
-    declare $int_opt nest_level=$1
-    declare $ref_opt bash_source_ref=$2
-    get_list_element BASH_SOURCE $(( 1 + nest_level )) bash_source_ref
-    declare $ref_opt function_name_ref=$3
-    get_list_element FUNCNAME $(( 1 + nest_level )) function_name_ref
-    declare $ref_opt line_number_ref=$4
-    get_list_element BASH_LINENO $(( 0 + nest_level )) line_number_ref
+set_command_context() {
+	parameter_count 1 "$@"
+	declare bashutils_context_nest_level=$1
+    get_list_element BASH_SOURCE $(( 1 + bashutils_context_nest_level )) bashutils_bash_source
+    get_list_element FUNCNAME $(( 1 + bashutils_context_nest_level )) bashutils_function_name
+    get_list_element BASH_LINENO $(( 0 + bashutils_context_nest_level )) bashutils_line_number
+	bashutils_standard_output_path=$(mktemp)
+	bashutils_standard_error_path=$(mktemp)
 }
+
+# log_error "$@"
 
 log_error() {
-
+	bashutils_return_code=$?
+	parameter_count_minimum 1 "$@"
+	declare bashutils_command_name=$1
+	declare bashutils_error_timestamp="$(date -u +'%Y/%m/%d %H:%M:%S')"
+	declare bashutils_command_line="$*"
+	declare bashutils_standard_output=$(<"$bashutils_standard_output_path")
+	declare bashutils_standard_error=$(<"$bashutils_standard_error_path")
+	append_list_elements bashutils_errors_list $(
+		cat <<-EOF
+		Time Stamp      : $bashutils_error_timestamp
+		Script Name     : $bashutils_bash_source
+		Line Number     : $bashutils_line_number
+		Function Name   : ${bashutils_function_name:-main}
+		Command Line    : $bashutils_command_line
+		Return Code     : $bashutils_command_name ( $bashutils_return_code )
+		Standard Output : $bashutils_standard_output
+		Standard Error  : $bashutils_standard_error
+		EOF
+	)
 }
 
-log_error_message() {}
 
-log_error_context() {
-    declare standard_error=$(<"$standard_error_path")
-    declare error_entry="[ ${bash_source}:${line_number} ] ${function_name:-main}() : ${command_name} exit code ( ${return_code} )"
-    [[ -n "$standard_error" ]] && error_entry+=" | standard error : ( ${standard_error} )"
-    append_list_elements bashutils_errors_list "$error_entry"
+# mask_command command_line command_line_masked
+
+# log error with sensetive
+
+# log_error_message error_message "$@"
+
+log_error_message() {
+	bashutils_return_code=$?
+	parameter_count_minimum 2 "$@"
+	declare bashutils_script_error="$1"
+	shift
+	declare bashutils_command_name=$1
+	declare bashutils_error_timestamp="$(date -u +'%Y/%m/%d %H:%M:%S')"
+	declare bashutils_command_line="$*"
+	declare bashutils_standard_output=$(<"$bashutils_standard_output_path")
+	declare bashutils_standard_error=$(<"$bashutils_standard_error_path")
+	append_list_elements bashutils_errors_list $(
+		cat <<-EOF
+		Time Stamp      : $bashutils_error_timestamp
+		Script Name     : $bashutils_bash_source
+		Line Number     : $bashutils_line_number
+		Function Name   : ${bashutils_function_name:-main}
+		Command Line    : $bashutils_command_line
+		Return Code     : $bashutils_command_name ( $bashutils_return_code )
+		Standard Output : $bashutils_standard_output
+		Standard Error  : $bashutils_standard_error
+		Script Error    : $bashutils_script_error
+		EOF
+	)
 }
+
+# log_error_sensetive_message
 
 # execute_command command
 
 execute_command() {
     parameter_count_minimum 1 "$@"
-    declare command_name=$1
-    declare bash_source 
-    declare function_name
-    declare $int_opt line_number
-    get_command_context 2 bash_source function_name line_number
-    declare $int_opt return_code=$function_true
-    declare standard_error_path=$(mktemp)
-    "$@" 1>/dev/null 2>"$standard_error_path" || {
-        return_code=$?
-        log_error_context
-    }
-    rm -f "$standard_error_path"
-    return $return_code
-}
-
-# log_error_message error_message
-
-log_error_message() {
-    parameter_count 1 "$@"
-    declare script_error="$1"
-    declare standard_error=$(<"$standard_error_path")
-    declare error_entry="[ ${bash_source}:${line_number} ] ${function_name:-main}() : ${command_name} exit code ( ${return_code} )"
-    [[ -n "$standard_error" ]] && error_entry+=" | standard error : ( ${standard_error} )"
-    error_entry+=" | script error : ( ${script_error} )"
-    append_list_elements bashutils_errors_list "$error_entry"
+    set_command_context $bashutils_grand_parent_context
+    "$@" 1>"$standard_output_path" 2>"$standard_error_path" || log_error
+	rm -f $bashutils_standard_error_path
+	rm -f $bashutils_standard_output_path
+    return $bashutils_return_code
 }
 
 # execute_command_error error_message command
@@ -139,21 +160,6 @@ run_command() {
     return $return_code
 }
 
-# run_command_notify notification_message command
-
-run_command_notify() {
-    parameter_count_minimum 2 "$@"
-    declare script_notification="$1"
-    shift
-    log_command "$@"
-    declare $int_opt return_code=$function_true
-    execute_command "$@" || return_code=$?
-    (( return_code == function_true )) && {
-        append_list_elements bashutils_notifications_list "$script_notification"
-    }
-    return $return_code
-}
-
 # run_command_error error_message command
 
 run_command_error() {
@@ -166,23 +172,6 @@ run_command_error() {
     return $return_code
 }
 
-# run_command_notify_error notification_message error_message command
-
-run_command_notify_error() {
-    parameter_count_minimum 3 "$@"
-    declare script_notification="$1"
-    shift
-    declare script_error="$1"
-    shift
-    log_command "$@"
-    declare $int_opt return_code=$function_true
-    execute_command_error "$script_error" "$@" || return_code=$?
-    (( return_code == function_true )) && {
-        append_list_elements bashutils_notifications_list "$script_notification"
-    }
-    return $return_code
-}
-
 # run_command_sensetive command credentials
 
 run_command_sensetive() {
@@ -190,21 +179,6 @@ run_command_sensetive() {
     log_command_masked "$@"
     declare $int_opt return_code=$function_true
     execute_command "$@" || return_code=$?
-    return $return_code
-}
-
-# run_command_notify notification_message command credentials
-
-run_command_sensetive_notify() {
-    parameter_count_minimum 2 "$@"
-    declare script_notification="$1"
-    shift
-    log_command_masked "$@"
-    declare $int_opt return_code=$function_true
-    execute_command "$@" || return_code=$?
-    (( return_code == function_true )) && {
-        append_list_elements bashutils_notifications_list "$script_notification"
-    }
     return $return_code
 }
 
@@ -220,22 +194,14 @@ run_command_sensetive_error() {
     return $return_code
 }
 
-# run_command_sensetive_notify_error notification_message error_message command credentials
 
-run_command_sensetive_notify_error() {
-    parameter_count_minimum 3 "$@"
-    declare script_notification="$1"
-    shift
-    declare script_error="$1"
-    shift
-    log_command_masked "$@"
-    declare $int_opt return_code=0
-    execute_command_error "$script_error" "$@" || return_code=$?
-    (( return_code == function_true )) && {
-        append_list_elements bashutils_notifications_list "$script_notification"
-    }
-    return $return_code
-}
+
+
+
+
+
+
+
 
 # declare $int_opt command_result
 # test_command command_result command
@@ -765,9 +731,14 @@ is_list_assigned
 
 
 
+# append_string variable_name string_value
 
-
-
+append_string() {
+    parameter_count 2 "@"
+    delare $ref_opt variable_ref=$1
+    declare string_suffix="$2"
+    variable_ref+="$string_suffix"
+}
 
 # copy_list list_name dest_variable
 
