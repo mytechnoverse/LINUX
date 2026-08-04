@@ -1,52 +1,144 @@
 #!/usr/bin/bash
 
 test -v bashutils_sourced && return
-
-declare str_low_opt='-l'
-declare str_up_opt='-u'
-declare int_opt='-i'
-declare list_opt='-a'
-declare ref_opt='-n'
-declare global_opt='-g'
-declare exported_opt='-x'
-declare readonly_opt='-r'
-
-declare $readonly_opt bashutils_version='1.0.0'
-
+declare -r bashutils_version='1.0.0'
 declare bashutils_bash_source
-declare $int_opt bashutils_line_number
+declare -i bashutils_line_number
 declare bashutils_function_name
-declare $int_opt bashutils_return_code
+declare -i bashutils_return_code
 declare bashutils_stdout_path
 declare bashutils_stderr_path
-
-declare $list_opt bashutils_commands
-declare $list_opt bashutils_temp_paths
-declare $list_opt bashutils_errors
-
-declare $int_opt $readonly_opt variable_true=1
-declare $int_opt $readonly_opt variable_false=0
-declare $int_opt $readonly_opt function_true=0
-declare $int_opt $readonly_opt function_false=1
-
-declare $readonly_opt bashutils_sourced
-
-# heredoc variable_name <<-EOF
-#	value
-# 	$variable_name
-# EOF 
+declare -a bashutils_commands
+declare -a bashutils_temp_paths
+declare -a bashutils_errors
+declare -a bashutils_errors_snapshot
+declare -i bashutils_fd_id=3
+declare -ir bashutils_variable_true=1
+declare -ir bashutils_variable_false=0
+declare -ir bashutils_function_true=0
+declare -ir bashutils_function_false=1
+declare -r bashutils_sourced
 
 heredoc() {
 	parameter_count 1 "$@"
 	declare $ref_opt variable_ref=$1
-    read -r -d '' variable_ref && variable_ref+=$'\n'
+    read -r -d '' variable_ref
+	variable_ref+=$'\n'
 }
 
-# mask_command command_line_masked_variable "$*"
+
+
+# gpg --batch --passphrase-fd 3 
+# 
+# printf '%s\n' "$password" | sudo -S command
+
+
+
+# declare -i string_length_variable
+# get_string_length string_variable string_length_variable 
+
+get_string_length() {
+	parameter_count 2 "$@"
+	declare -n string_ref="$1"
+	declare -n length_ref="$2"
+	length_ref=${#string_ref}
+}
+
+# declare bashutils_password
+# execute_command_prompt prompt_password bashutils_password prompt_value
+
+prompt_password() {
+	parameter_count 1 "$@"
+	declare -n password_ref="$1"
+	declare prompt_line="$2"
+	declare bashutils_password
+	execute_command_prompt read -r -s -p "$prompt_line" bashutils_password
+	execute_command_prompt echo
+}
+
+# check_password bashutils_password
+
+check_password() {
+
+	declare -i bashutils_password_length
+	get_string_length bashutils_password bashutils_password_length
+
+	LC_ALL=C
+	check_condition_sensetive_error "Password contains invalid characters" [[ "$password" =~ ^[ -~]+$ ]]
+	check_condition_error "Password containes less than 12 characters" [[ $bashutils_password_length -lt 12 ]]
+	check_condition_sensetive_error "Password does NOT contain lower case letters" [[ "$password" =~ [a-z] ]]
+	check_condition_sensetive_error "Password does NOT contain upper case letters" [[ "$password" =~ [A-Z] ]]
+	check_condition_sensetive_error "Password does NOT contain numbers" [[ "$password" =~ [0-9] ]]
+	check_condition_sensetive_error "Password does NOT contain symbols" [[ "$password" =~ [^a-zA-Z0-9] ]]
+}
+
+
+
+
+
+
+
+# create_password_file password_value
+
+create_password_file() {
+	parameter_count 1 "$@"
+	declare bashutils_password="$1"
+	exec $bashutils_fd_id<<< "$bashutils_password"
+	(( bashutils_fd_id++ ))
+}
+
+# exec 3<<< printf 'user = "%s:%s"\n' "$user_name" "$password"
+# exec 3<<-EOF
+# user = "${user}:${password}"
+# EOF
+# curl --config /dev/fd/3 https://api.example.com
+# exec 3<<< printf '%s' "$password"
+# mkpasswd --stdin <&3
+
+
+
+
+# if last word is ]] , its a regex condition and masked 1 word before ( =~ ) sign
+
+
+mask_command_line() {
+    declare -n masked_ref=$1
+    declare command_line="$2"
+    local last="${command_line##* }"         # Get last word
+    local rest="${command_line% *}"          # Everything except last word
+    masked_ref="${rest% *} ******** $last"   # Mask new last word of rest
+}
+
+
+mask_command_line() {
+    declare -n masked_ref=$1
+    declare command_line="$2"
+    
+    # Get last word and everything before it
+    local last_word="${command_line##* }"
+    local without_last="${command_line% *}"
+    
+    # Mask the new last word of the remaining string
+    masked_ref="${without_last% *} ******** $last_word"
+}
+
+
+
+
+
+
+
+
+
+
+
+# if last word was ]] or )) , mask 1 index before
+
+# mask_command_line command_line_masked_variable "$*"
 
 mask_command_line() {
 	parameter_count 2 "$@"
-	declare $ref_opt masked_ref=$1
+	declare -n masked_ref=$1
 	declare command_line="$2"
 	masked_ref="${command_line% *} ********"
 }
@@ -76,12 +168,25 @@ create_temp_path() {
 	append_list_elements bashutils_temp_paths $path_ref
 }
 
+# get_errors_snapshot
+
+get_errors_snapshot() {
+	copy_list bashutils_errors bashutils_errors_snapshot
+}
+
+# set_errors_snapshot || return $function_false
+
+set_errors_snapshot() {
+	copy_list bashutils_errors_snapshot bashutils_errors
+}
+
 # get_execution_context
 
 get_execution_context() {
 	declare $int_opt nest_level
 	for_each_function() {
-		(( list_index > 0 )) && [[ "$list_element" != execute_command_* && "$list_element" != run_command_* && "$list_element" != check_condition_* ]] && {
+		(( list_index > 0 )) && \
+		[[ "$list_element" != execute_command* && "$list_element" != run_command_* && "$list_element" != check_condition* ]] && {
 			nest_level=$list_index
 			break_loop
 		}
@@ -151,6 +256,15 @@ execute_command() {
 	return $bashutils_return_code
 }
 
+# execute_command_prompt
+
+execute_command_prompt() {
+	parameter_count_minimum 1 "$@"
+	get_execution_context
+	"$@" || log_error "$*"
+	return $bashutils_return_code
+}
+
 # execute_command_sensetive "$@"
 
 execute_command_sensetive() {
@@ -185,6 +299,10 @@ execute_command_sensetive_error() {
 	"$@" 1>$bashutils_stdout_path 2>$bashutils_stderr_path || log_error "$bashutils_script_error" "$command_line_masked"
 	return $bashutils_return_code
 }
+
+
+
+# run_command_handler : case return code x -> do y based on execute_command
 
 # run_command command_line_value
 
@@ -222,61 +340,80 @@ run_command_sensetive_error() {
 	execute_command_sensetive_error "$bashutils_script_error" "$@"
 }
 
-check_condition() {
-	parameter_count_minimum 1 "$@"
-	declare $list_opt bashutils_commands_snapshot
-	declare $list_opt bashutils_errors_snapshot
-	copy_list bashutils_commands bashutils_commands_snapshot
-	copy_list bashutils_errors bashutils_errors_snapshot
-	if execute_command "$@"
-	then
-		copy_list bashutils_commands_snapshot bashutils_commands
-		copy_list bashutils_errors_snapshot bashutils_errors
-	else
-		return $bashutils_return_code
-	fi
-}
+# check_condition_required condition_line
 
 check_condition() {
 	parameter_count_minimum 1 "$@"
-	declare $list_opt bashutils_commands_snapshot
-	copy_list bashutils_commands bashutils_commands_snapshot
-	declare $list_opt bashutils_errors_snapshot
-	copy_list bashutils_errors bashutils_errors_snapshot
-	if execute_command "$@"
-	then
-		copy_list bashutils_commands_snapshot bashutils_commands
-		copy_list bashutils_errors_snapshot bashutils_errors
-	else
-		return $bashutils_return_code
-	fi
+	execute_command "$@" || return 1
 }
+
+# check_condition_required_inverted condition_line
 
 check_condition_inverted() {
 	parameter_count_minimum 1 "$@"
-	declare $list_opt bashutils_commands_snapshot
-	copy_list bashutils_commands bashutils_commands_snapshot
-	declare $list_opt bashutils_errors_snapshot
-	copy_list bashutils_errors bashutils_errors_snapshot
-
-	# rectify this
-
-
-	if execute_command "$@"
-	then
-		return $bashutils_return_code
-	else
-		copy_list bashutils_commands_snapshot bashutils_commands
-		copy_list bashutils_errors_snapshot bashutils_errors
-	fi
+	! execute_command "$@"
 }
+
+# check_condition_required_sensetive condition_line
 
 check_condition_sensetive() {
+	parameter_count_minimum 1 "$@"
+	execute_command_sensetive "$@" || return 1
+}
+
+# check_condition_required_error error_message_value condition_line
+
+check_condition_error() {
+	parameter_count_minimum 2 "$@"
+	declare bashutils_script_error="$1"
+	shift
+	execute_command_error "$bashutils_script_error" "$@" || return 1
+}
+
+# check_condition_required_sensetive_error error_message_value condition_line
+
+check_condition_sensetive_error() {
+	parameter_count_minimum 2 "$@"
+	declare bashutils_script_error="$1"
+	shift
+	execute_command_sensetive_error "$bashutils_script_error" "$@" || return 1
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+check_condition() {
+	parameter_count_minimum 1 "$@"
 	declare $list_opt bashutils_commands_snapshot
 	copy_list bashutils_commands bashutils_commands_snapshot
 	declare $list_opt bashutils_errors_snapshot
 	copy_list bashutils_errors bashutils_errors_snapshot
-	if execute_command_sensetive "$@"
+	if execute_command "$@"
 	then
 		copy_list bashutils_commands_snapshot bashutils_commands
 		copy_list bashutils_errors_snapshot bashutils_errors
@@ -284,13 +421,6 @@ check_condition_sensetive() {
 		return $bashutils_return_code
 	fi
 }
-
-
-
-# check_condition_error
-# check_condition_sensetive
-# check_condition_sensetive_error
-
 
 
 
@@ -834,11 +964,9 @@ for_loop_reverse() {
 
 
 
-
-
-
+# undefined_function() { :; }
 # assign_integer
-
+# assign_list variable_name 'abc' 'xyz'
 
 
 
@@ -853,6 +981,24 @@ set -Eeuo pipefail
 
 === Syntax :
 
+declare    : string variable
+declare -l : lower case string variable
+declare -u : upper case string variable
+declare -i : integer variable
+declare -a : list variable ( bash indexed array )
+declare -A : dictionary variable ( bash associative array )
+declare -n : nameref variable
+declare -g : global variable
+declare -x : exported variable
+declare -r : readonly variable
+
+=== Heredoc : ( TAB Indentation )
+
+heredoc variable_name <<-EOF
+	value
+ 	$variable_name
+# EOF
+
 [[ string == string ]]
 [[ string != string ]]
 
@@ -862,6 +1008,13 @@ set -Eeuo pipefail
 (( integer >= integer ))
 (( integer < integer ))
 (( integer > integer ))
+
+[[ $integer -eq $integer ]]
+[[ $integer -ne $integer ]]
+[[ $integer -lt $integer ]]
+[[ $integer -le $integer ]]
+[[ $integer -gt $integer ]]
+[[ $integer -ge $integer ]]
 
 (( boolean ))
 (( ! boolean ))
@@ -884,16 +1037,25 @@ for_loop list_name for_each_element
 1 liner ELSE : condition || { ... }
 Multi line THEN ELSE : if condition then ... else ... fi
 
+=== Sufficient Conditions :
+
+get_errors_snapshot
+
+check_condition sufficient_condition_X || {
+    check_condition sufficient_condition_Y && set_errors_snapshot || {
+        check_condition sufficient_condition_Z && set_errors_snapshot || return $function_false
+    }
+}
+
 EOF
 
 
 
 
 
-# expect_error() { :; }
 
-# define_list variable_name=()
-# assign_list variable_name 'abc' 'xyz'
+
+
 
 
 
