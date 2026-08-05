@@ -8,9 +8,9 @@ declare bashutils_function_name
 declare -i bashutils_return_code
 declare bashutils_stdout_path
 declare bashutils_stderr_path
-declare -a bashutils_commands
+declare -ax bashutils_commands
+declare -ax bashutils_errors
 declare -a bashutils_temp_paths
-declare -a bashutils_errors
 declare -a bashutils_errors_snapshot
 declare -i bashutils_fd_id=3
 declare -ir bashutils_variable_true=1
@@ -19,128 +19,84 @@ declare -ir bashutils_function_true=0
 declare -ir bashutils_function_false=1
 declare -r bashutils_sourced
 
-heredoc() {
-	parameter_count 1 "$@"
-	declare $ref_opt variable_ref=$1
-    read -r -d '' variable_ref
-	variable_ref+=$'\n'
+# check_fqdn
+# check_port
+
+is_terminal_interactive() {
+	[[ -e /dev/tty ]]
 }
 
+# prompt_user example_data_var prompt_banner validator_function_name
 
+prompt_user() {
+	parameter_count 3 "$@"
+	declare -n bashutils_data_ref="$1"
+	declare bashutils_prompt_banner="$2"
+	declare bashutils_validator_func="$3"
+	check_condition_error "Script is not run interactively" is_terminal_interactive
+	declare bashutils_user_input=''
+	until $bashutils_validator_func && bashutils_data_ref="$bashutils_user_input"
+	do
+		printf '%s' "$bashutils_prompt_banner" >/dev/tty
+		read -r bashutils_user_input </dev/tty
+		printf '\n' >/dev/tty
+	done
+}
 
-# gpg --batch --passphrase-fd 3 
-# 
-# printf '%s\n' "$password" | sudo -S command
+# check_password && bashutils_password_ref="$bashutils_user_input"
 
+bashutils_check_password() {
+	check_condition_error "Password should be at least 12 characters" is_string_length_min bashutils_user_input 12
+	declare LC_ALL="C"
+	check_condition_sensetive_error "Password contains SPACE or non ENGLISH characters" [[ "$bashutils_user_input" =~ ^[!-~]+$ ]]
+	check_condition_sensetive_error "Password does NOT contain lower case letters" [[ "$bashutils_user_input" =~ [a-z] ]]
+	check_condition_sensetive_error "Password does NOT contain upper case letters" [[ "$bashutils_user_input" =~ [A-Z] ]]
+	check_condition_sensetive_error "Password does NOT contain numbers" [[ "$bashutils_user_input" =~ [0-9] ]]
+	check_condition_sensetive_error "Password does NOT contain symbols" [[ "$bashutils_user_input" =~ [^a-zA-Z0-9] ]]
+}
 
+# prompt_user_password example_password_var prompt_banner 
 
-# declare -i string_length_variable
-# get_string_length string_variable string_length_variable 
-
-get_string_length() {
+prompt_user_password() {
 	parameter_count 2 "$@"
-	declare -n string_ref="$1"
-	declare -n length_ref="$2"
-	length_ref=${#string_ref}
+	declare -n bashutils_password_ref="$1"
+	declare bashutils_prompt_banner="$2"
+	check_condition_error "Script is not run interactively" is_terminal_interactive
+	declare bashutils_user_input=''
+	until bashutils_check_password && bashutils_password_ref="$bashutils_user_input"
+	do
+		printf '%s' "$bashutils_prompt_banner" >/dev/tty
+		read -r -s bashutils_user_input </dev/tty
+		printf '\n' >/dev/tty
+	done
 }
 
-# declare bashutils_password
-# execute_command_prompt prompt_password bashutils_password prompt_value
+# declare -i example_password_fd
+# create_password_fd example_password_var example_password_fd
 
-prompt_password() {
-	parameter_count 1 "$@"
-	declare -n password_ref="$1"
-	declare prompt_line="$2"
-	declare bashutils_password
-	execute_command_prompt read -r -s -p "$prompt_line" bashutils_password
-	execute_command_prompt echo
-}
-
-# check_password bashutils_password
-
-check_password() {
-
-	declare -i bashutils_password_length
-	get_string_length bashutils_password bashutils_password_length
-
-	LC_ALL=C
-	check_condition_sensetive_error "Password contains invalid characters" [[ "$password" =~ ^[ -~]+$ ]]
-	check_condition_error "Password containes less than 12 characters" [[ $bashutils_password_length -lt 12 ]]
-	check_condition_sensetive_error "Password does NOT contain lower case letters" [[ "$password" =~ [a-z] ]]
-	check_condition_sensetive_error "Password does NOT contain upper case letters" [[ "$password" =~ [A-Z] ]]
-	check_condition_sensetive_error "Password does NOT contain numbers" [[ "$password" =~ [0-9] ]]
-	check_condition_sensetive_error "Password does NOT contain symbols" [[ "$password" =~ [^a-zA-Z0-9] ]]
-}
-
-
-
-
-
-
-
-# create_password_file password_value
-
-create_password_file() {
-	parameter_count 1 "$@"
-	declare bashutils_password="$1"
-	exec $bashutils_fd_id<<< "$bashutils_password"
+set_password_fd() {
+	parameter_count 2 "$@"
+	declare example_password_var="$1"
+	declare -n example_password_fd_ref=$2
+	example_password_fd_ref=$bashutils_fd_id
+	execute_command_sensetive exec $bashutils_fd_id<<< "$example_password_var"
 	(( bashutils_fd_id++ ))
 }
 
-# exec 3<<< printf 'user = "%s:%s"\n' "$user_name" "$password"
-# exec 3<<-EOF
-# user = "${user}:${password}"
-# EOF
-# curl --config /dev/fd/3 https://api.example.com
-# exec 3<<< printf '%s' "$password"
-# mkpasswd --stdin <&3
-
-
-
-
-# if last word is ]] , its a regex condition and masked 1 word before ( =~ ) sign
-
-
-mask_command_line() {
-    declare -n masked_ref=$1
-    declare command_line="$2"
-    local last="${command_line##* }"         # Get last word
-    local rest="${command_line% *}"          # Everything except last word
-    masked_ref="${rest% *} ******** $last"   # Mask new last word of rest
-}
-
-
-mask_command_line() {
-    declare -n masked_ref=$1
-    declare command_line="$2"
-    
-    # Get last word and everything before it
-    local last_word="${command_line##* }"
-    local without_last="${command_line% *}"
-    
-    # Mask the new last word of the remaining string
-    masked_ref="${without_last% *} ******** $last_word"
-}
-
-
-
-
-
-
-
-
-
-
-
-# if last word was ]] or )) , mask 1 index before
-
-# mask_command_line command_line_masked_variable "$*"
+# declare bashutils_log_entry
+# mask_command_line bashutils_log_entry "$*"
 
 mask_command_line() {
 	parameter_count 2 "$@"
 	declare -n masked_ref=$1
-	declare command_line="$2"
-	masked_ref="${command_line% *} ********"
+    declare command_line="$2"
+	[[ "$command_line" == *=~* ]] && {
+		declare regex_pattern="${command_line#* =~ }"
+		regex_pattern="${regex_pattern% ]]*}"
+		masked_ref="[[ ******** =~ $regex_pattern ]]"
+	} || {
+		masked_ref="${command_line% *} ********"
+	}
 }
 
 # log_command "$*"
@@ -209,15 +165,15 @@ log_error() {
 	declare bashutils_error_timestamp="$(date -u +'%Y/%m/%d %H:%M:%S')"
 	declare bashutils_standard_output=$(<"$bashutils_stdout_path")
 	declare bashutils_standard_error=$(<"$bashutils_stderr_path")
-	heredoc bashutils_error_entry <<-EOF
+	assign_text bashutils_error_entry <<-EOF
 		Time Stamp      : $bashutils_error_timestamp
 		Script Name     : $bashutils_bash_source
 		Line Number     : $bashutils_line_number
 		Function Name   : $bashutils_function_name
 		Command Line    : $bashutils_command_line
 		Return Code     : $bashutils_return_code
-		Standard Output : $bashutils_standard_output
 		Standard Error  : $bashutils_standard_error
+		Standard Output : $bashutils_standard_output
 	EOF
 	append_list_elements bashutils_errors_list bashutils_error_entry
 }
@@ -233,18 +189,38 @@ log_error_message() {
 	declare bashutils_error_timestamp="$(date -u +'%Y/%m/%d %H:%M:%S')"
 	declare bashutils_standard_output=$(<"$bashutils_stdout_path")
 	declare bashutils_standard_error=$(<"$bashutils_stderr_path")
-	heredoc bashutils_error_entry <<-EOF
+	assign_text bashutils_error_entry <<-EOF
 		Time Stamp      : $bashutils_error_timestamp
 		Script Name     : $bashutils_bash_source
 		Line Number     : $bashutils_line_number
 		Function Name   : $bashutils_function_name
 		Command Line    : $bashutils_command_line
 		Return Code     : $bashutils_return_code
-		Standard Output : $bashutils_standard_output
 		Standard Error  : $bashutils_standard_error
+		Standard Output : $bashutils_standard_output
 		Script Error    : $bashutils_script_error
 	EOF
 	append_list_elements bashutils_errors_list bashutils_error_entry
+}
+
+# execute_script script_name script_arguments...
+
+execute_script() {
+	parameter_count_minimum 1 "$@"
+	get_execution_context
+	"$@" || log_context "$*"
+	return $bashutils_return_code
+}
+
+# execute_script_error error_message_value script_name script_arguments...
+
+execute_script_error() {
+	parameter_count_minimum 2 "$@"
+	declare bashutils_script_error="$1"
+	shift
+	get_execution_context
+	"$@" || log_context_message "$bashutils_script_error" "$*"
+	return $bashutils_return_code
 }
 
 # execute_command "$@"
@@ -253,15 +229,6 @@ execute_command() {
 	parameter_count_minimum 1 "$@"
 	get_execution_context
 	"$@" 1>$bashutils_stdout_path 2>$bashutils_stderr_path || log_error "$*"
-	return $bashutils_return_code
-}
-
-# execute_command_prompt
-
-execute_command_prompt() {
-	parameter_count_minimum 1 "$@"
-	get_execution_context
-	"$@" || log_error "$*"
 	return $bashutils_return_code
 }
 
@@ -424,115 +391,6 @@ check_condition() {
 
 
 
-
-
-
-# declare $int_opt conditions_status condition
-# check_condition_required conditions_status condition
-
-check_condition_required() {
-	parameter_count_minimum 2 "$@"
-	declare $ref_opt status_ref=$1
-	shift
-	[[ -z "$status_ref" ]] && status_ref=$function_true
-	(( status_ref == function_true )) && {
-		check_condition "$@" || status_ref=$function_false 
-	}
-}
-
-# check_condition_required_inverted conditions_status condition
-
-check_condition_required_inverted() {
-	parameter_count_minimum 2 "$@"
-	declare $ref_opt status_ref=$1
-	shift
-	[[ -z "$status_ref" ]] && status_ref=$function_true
-	(( status_ref == function_true )) && {
-		check_condition_inverted "$@" || status_ref=$function_false 
-	}
-}
-
-# check_condition_required_error conditions_status error_message condition
-
-check_condition_required_error() {
-	parameter_count_minimum 3 "$@"
-	declare $ref_opt status_ref=$1
-	shift
-	declare script_error="$2"
-	shift
-	[[ -z "$status_ref" ]] && status_ref=$function_true
-	(( status_ref == function_true )) && {
-		check_condition_error "$script_error" "$@" || {
-			status_ref=$function_false 
-		}
-	}
-}
-
-# check_condition_required_inverted_error conditions_status error_message condition
-
-check_condition_required_inverted_error() {
-	parameter_count_minimum 3 "$@"
-	declare $ref_opt status_ref=$1
-	shift
-	declare script_error="$2"
-	shift
-	[[ -z "$status_ref" ]] && status_ref=$function_true
-	(( status_ref == function_true )) && {
-		check_condition_inverted_error "$script_error" "$@" || {
-			status_ref=$function_false 
-		}
-	}
-}
-
-# check_condition_sufficient conditions_status condition
-
-check_condition_sufficient() {
-	parameter_count_minimum 2 "$@"
-	declare $ref_opt status_ref=$1
-	shift
-	[[ -z "$status_ref" ]] && status_ref=$function_false
-	(( status_ref == function_false )) && {
-		check_condition "$@" && status_ref=$function_true
-	}
-}
-
-# check_condition_sufficient_inverted conditions_status condition
-
-check_condition_sufficient_inverted() {
-	parameter_count_minimum 2 "$@"
-	declare $ref_opt status_ref=$1
-	shift
-	[[ -z "$status_ref" ]] && status_ref=$function_false
-	(( status_ref == function_false )) && {
-		check_condition "$@" || status_ref=$function_true
-	}
-}
-
-# check_conditions conditions_status
-
-check_conditions() {
-	parameter_count 1 "$@"
-	declare $int_opt function_code=$1
-	(( function_code == function_true )) && {
-		return $function_true
-	} || {
-		return $function_false
-	}
-}
-
-# check_conditions_error conditions_status error_message
-
-check_conditions() {
-	parameter_count 2 "$@"
-	declare $ref_opt code_ref=$1
-	declare script_error="$2"
-	(( code_ref == function_true )) && {
-		return $function_true
-	} || {
-		append_list_elements bashutils_errors_list "$script_error"
-		return $function_false
-	}
-}
 
 
 
@@ -761,19 +619,34 @@ is_value_assigned() {
 }
 
 
-: <<'EOF'
-declare "$list_opt" function_name_conditions
-add_true_condition function_name_conditions condition
-add_false_condition function_name_conditions condition
-EOF
+assign_text() {
+	parameter_count 1 "$@"
+	declare -n variable_ref=$1
+    read -r -d '' variable_ref
+	variable_ref+=$'\n'
+}
 
 
+# declare -i string_length_var
+# get_string_length string_var string_length_var  
 
+get_string_length() {
+	parameter_count 2 "$@"
+	declare -n bashutils_length_ref="$1"
+	declare -n bashutils_string_ref="$2"
+	bashutils_length_ref=${#bashutils_string_ref}
+}
 
+# is_string_length_min string_var min_length_value
 
-
-
-
+is_string_length_min() {
+	parameter_count 2 "$@"
+	declare bashutils_string_var="$1"
+	declare -i bashutils_length_min=$2
+	declare -i bashutils_string_length
+	get_string_length bashutils_string_var bashutils_string_length
+	[[ $bashutils_string_length -ge $bashutils_length_min ]]	 
+}
 
 # is_string variable_name
 
@@ -992,12 +865,16 @@ declare -g : global variable
 declare -x : exported variable
 declare -r : readonly variable
 
+# bashutils_user_input
+
 === Heredoc : ( TAB Indentation )
 
-heredoc variable_name <<-EOF
+assign_text variable_name <<-EOF
 	value
  	$variable_name
 # EOF
+
+=== Syntax :
 
 [[ string == string ]]
 [[ string != string ]]
@@ -1020,6 +897,23 @@ heredoc variable_name <<-EOF
 (( ! boolean ))
 (( boolean && boolean ))
 (( boolean || boolean ))
+
+=== Prompt Validator Function :
+
+# bashutils_user_input
+
+=== Password File Descriptor :
+
+# exec 3<<< printf 'user = "%s:%s"\n' "$user_name" "$password"
+# exec 3<<-EOF
+# user = "${user}:${password}"
+# EOF
+# curl --config /dev/fd/3 https://api.example.com
+# exec 3<<< printf '%s' "$password"
+# mkpasswd --stdin <&3
+# gpg --batch --passphrase-fd $bashutils_fd_id
+# sudo -v -S <&3
+# sudo -k
 
 === For Loop :
 
@@ -1048,9 +942,6 @@ check_condition sufficient_condition_X || {
 }
 
 EOF
-
-
-
 
 
 
