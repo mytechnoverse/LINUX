@@ -21,9 +21,54 @@ declare -r bashutils_sourced
 
 # check_fqdn
 # check_port
+# run_command_sudo
+# run_command_handler
+
+# is_terminal_interactive 
 
 is_terminal_interactive() {
 	[[ -e /dev/tty ]]
+}
+
+# are_characters_invalid_sensetive input_var
+
+are_characters_valid_sensetive() {
+	parameter_count 1 "$@"
+	declare -n bashutils_input_ref=$1
+	declare LC_ALL="C" 
+	check_condition_sensetive [[ "$bashutils_input_ref" =~ ^[!-~]+$ ]]
+}
+
+# has_lowercase_character_sensetive input_var
+
+has_character_lowercase_sensetive() {
+	parameter_count 1 "$@"
+	declare -n bashutils_input_ref=$1
+	check_condition_sensetive [[ "$bashutils_input_ref" =~ [a-z] ]]
+}
+
+# has_uppercase_character_sensetive input_var
+
+has_character_uppercase_sensetive() {
+	parameter_count 1 "$@"
+	declare -n bashutils_input_ref=$1
+	check_condition_sensetive [[ "$bashutils_input_ref" =~ [A-Z] ]]
+}
+
+# has_number_character_sensetive input_var
+
+has_character_number_sensetive() {
+	parameter_count 1 "$@"
+	declare -n bashutils_input_ref=$1
+	check_condition_sensetive [[ "$bashutils_input_ref" =~ [0-9] ]]
+}
+
+# has_character_symbol_sensetive input_var
+
+has_character_symbol_sensetive() {
+	parameter_count 1 "$@"
+	declare -n bashutils_input_ref=$1
+	check_condition_sensetive [[ "$bashutils_input_ref" =~ [^a-zA-Z0-9] ]]
 }
 
 # prompt_user example_data_var prompt_banner validator_function_name
@@ -35,7 +80,7 @@ prompt_user() {
 	declare bashutils_validator_func="$3"
 	check_condition_error "Script is not run interactively" is_terminal_interactive
 	declare bashutils_user_input=''
-	until $bashutils_validator_func && bashutils_data_ref="$bashutils_user_input"
+	until $bashutils_validator_func && bashutils_data_ref="$bashutils_user_input" || return 1
 	do
 		printf '%s' "$bashutils_prompt_banner" >/dev/tty
 		read -r bashutils_user_input </dev/tty
@@ -43,16 +88,15 @@ prompt_user() {
 	done
 }
 
-# check_password && bashutils_password_ref="$bashutils_user_input"
+# bashutils_check_password
 
 bashutils_check_password() {
 	check_condition_error "Password should be at least 12 characters" is_string_length_min bashutils_user_input 12
-	declare LC_ALL="C"
-	check_condition_sensetive_error "Password contains SPACE or non ENGLISH characters" [[ "$bashutils_user_input" =~ ^[!-~]+$ ]]
-	check_condition_sensetive_error "Password does NOT contain lower case letters" [[ "$bashutils_user_input" =~ [a-z] ]]
-	check_condition_sensetive_error "Password does NOT contain upper case letters" [[ "$bashutils_user_input" =~ [A-Z] ]]
-	check_condition_sensetive_error "Password does NOT contain numbers" [[ "$bashutils_user_input" =~ [0-9] ]]
-	check_condition_sensetive_error "Password does NOT contain symbols" [[ "$bashutils_user_input" =~ [^a-zA-Z0-9] ]]
+	check_condition_error "Password contains SPACE or non ENGLISH characters" are_characters_valid_sensetive bashutils_user_input
+	check_condition_error "Password does NOT contain lower case letters" has_lowercase_character_sensetive bashutils_user_input
+	check_condition_error "Password does NOT contain upper case letters" has_uppercase_character_sensetive bashutils_user_input
+	check_condition_error "Password does NOT contain numbers" has_number_character_sensetive bashutils_user_input
+	check_condition_error "Password does NOT contain symbols" has_character_symbol_sensetive bashutils_user_input
 }
 
 # prompt_user_password example_password_var prompt_banner 
@@ -63,7 +107,7 @@ prompt_user_password() {
 	declare bashutils_prompt_banner="$2"
 	check_condition_error "Script is not run interactively" is_terminal_interactive
 	declare bashutils_user_input=''
-	until bashutils_check_password && bashutils_password_ref="$bashutils_user_input"
+	until bashutils_check_password && bashutils_password_ref="$bashutils_user_input" || return 1
 	do
 		printf '%s' "$bashutils_prompt_banner" >/dev/tty
 		read -r -s bashutils_user_input </dev/tty
@@ -267,10 +311,6 @@ execute_command_sensetive_error() {
 	return $bashutils_return_code
 }
 
-
-
-# run_command_handler : case return code x -> do y based on execute_command
-
 # run_command command_line_value
 
 run_command() {
@@ -346,6 +386,14 @@ check_condition_sensetive_error() {
 	execute_command_sensetive_error "$bashutils_script_error" "$@" || return 1
 }
 
+# bashutils_error_handler() {}
+
+# trap 'bashutils_error_handler $? $LINENO $BASH_COMMAND' ERR
+
+# for loop through bashutils_temp_paths and delete each
+# bashutils_exit_handler() {}
+
+# trap bashutils_exit_handler EXIT
 
 
 
@@ -365,138 +413,69 @@ check_condition_sensetive_error() {
 
 
 
+# declare bashutils_library_path
+# get_bashutils_library_path bashutils_library_path
 
-
-
-
-
-
-
-
-
-check_condition() {
-	parameter_count_minimum 1 "$@"
-	declare $list_opt bashutils_commands_snapshot
-	copy_list bashutils_commands bashutils_commands_snapshot
-	declare $list_opt bashutils_errors_snapshot
-	copy_list bashutils_errors bashutils_errors_snapshot
-	if execute_command "$@"
-	then
-		copy_list bashutils_commands_snapshot bashutils_commands
-		copy_list bashutils_errors_snapshot bashutils_errors
-	else
-		return $bashutils_return_code
-	fi
+get_bashutils_library_path() {
+	declare -n 
 }
 
 
+# get_parent_path()
 
+# $(dirname "$path")
 
+# get_bashutils_library_dir() : get_parent_path bashutils_library_dir
 
-
-bashutils_error_handler() {}
-
-
-
-trap bashutils_error_handler ERR
-
-
-
+# declare -r bashutils_directory_path=$(dirname "${BASH_SOURCE[0]}")
 
 
 
 
 
-FINAL WAY :
-==================================================================
+# get path , loop and source every file in same dir as bashutils.bash file like "$bashutils_library_dir/bashutils_validation.bash" in the bashutils.bash file itself
+# only source bashutils.bash in init function of bashutils . other files are sourced by the bashutils.bash itself
+# include run_command , check_condition in bashutils.bash , seperate area specific functions in their own file
 
 
-declare -a bashutils_error_stack=()
 
-add_error() {
-	bashutils_error_stack+=("[${FUNCNAME[1]:-main}] $1")
+
+
+
+
+
+
+
+
+
+
+is_file_executable() {
+	parameter_count 1 "$@"
+	declare bashutils_file_path="$1"
+	[[ -x "$bashutils_file_path" ]]
 }
 
-# This will exit on failure because of set -e
-expect_error() {
-	local error_message="$1"
-	shift
-	"$@" 2>/dev/null || {
-		add_error "$error_message"
-		false  # Triggers set -e
-	}
+set_file_executable() {
+	parameter_count 1 "$@"
+	declare bashutils_file_path="$1"
+	run_command_error "failed to make file ( ${bashutils_file_path} ) executable" chmod +x "$bashutils_file_path"
 }
 
-# ERR trap shows the stack
-error_handler() {
-	local exit_code=$?
-	echo "=== Error Stack (exit code: $exit_code) ===" >&2
-	if (( ${#bashutils_error_stack[@]} > 0 )); then
-		for i in "${!bashutils_error_stack[@]}"; do
-			echo "  $((i+1)). ${bashutils_error_stack[i]}" >&2
-		done
-	else
-		echo "  (no error messages collected)" >&2
-	fi
-	echo "==========================================" >&2
-	exit $exit_code
+ensure_file_executable() {
+	parameter_count 1 "$@"
+	declare bashutils_file_path="$1"
+	is_file_executable "$bashutils_file_path" && return $bashutils_function_true
+	run_command set_file_executable "$bashutils_file_path"
+	check_condition_error "failed to make file ( ${bashutils_file_path} ) executable" is_file_readable "$bashutils_file_path"
 }
 
-trap error_handler ERR
+# is_file_permissions
+# set_file_permissions
+# ensure_file_permissions
 
-is_file_readable() {
-	[[ -r "$1" ]]
-}
-
-set_file_readable() {
-	local file_path="$1"
-	
-	is_file_readable "$file_path" && return 0
-	
-	# No || return 1 needed - set -e handles it
-	expect_error "file does not exist: $file_path" test -e "$file_path"
-	expect_error "failed to make file readable: $file_path" chmod +r "$file_path"
-}
-
-read_conf_file() {
-	local conf_file="$1"
-	
-	expect_error "cannot access config file: $conf_file" set_file_readable "$conf_file"
-	expect_error "failed to parse config: $conf_file" source "$conf_file"
-}
-
-init_application() {
-	local conf_dir="$1"
-	
-	expect_error "application initialization failed" read_conf_file "$conf_dir/app.conf"
-}
-
-main() {
-	init_application "/etc/myapp"
-	echo "Application started successfully"
-}
-
-main
-
-==================================================================
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# is_package_installed
+# install_package_deb
+# ensure_package_deb
 
 
 # parameter_count 1 "$@"
@@ -565,9 +544,7 @@ get_variable_type() {
 
 # is_variable_type { string | integer | list | dictionary } variable_name
 
-is_variable_type() {
-
-}
+# is_variable_type() {}
 
 
 
@@ -663,7 +640,7 @@ is_string() {
 
 # is_integer variable_name
 
-is_integer_() {}
+# is_integer_() {}
 
 
 
@@ -672,19 +649,16 @@ is_list_assigned() {
 	[[ -v "$1" && -v "${1}[0]" ]]
 }
 
--n "${array[0]}"
+# -n "${array[0]}"
 
 # -n ( value )
 # ref then -n ( variable )
 
-is_scalar_variable_assigned() {
-
-}
+# is_scalar_variable_assigned() {}
 
 # ${#var[@]} -gt 0
 
-is_list_assigned
-
+# is_list_assigned
 
 # is_value_list ???
 
@@ -864,6 +838,55 @@ declare -n : nameref variable
 declare -g : global variable
 declare -x : exported variable
 declare -r : readonly variable
+
+=== Functions Variable Definition Methods :
+
+1. No Declaration : Global READ + GLOBAL WRITE
+
+Global List & Status Tracking Functions
+Global & Parent Scope Variables Override Vulnerable
+Log & Error Safe : use check_condition() or run_command() for both normal and sensetive conditions or commands
+
+declare variable_name
+
+function_name() {
+	variable_name=123
+	echo $variable_name
+}
+
+function_name
+
+1. Redeclaration : Global READ + Local WRITE
+
+Local Isolated Functions ( Loops )
+Global & Parent Scope Variable Override Safe 
+Log & Error Vulnerable : use check_condition_sensetive() or run_command_sensetive() for sensetive conditions or commands 
+
+function_name() {
+	declare variable_name=$1
+	variable_name=123
+	echo $variable_name
+}
+
+function_name 123
+function_name $variable_name
+
+2. Reference : Global READ + Parent WRITE
+
+Sensetive , Validation , Processing Functions
+Global Variable Override Safe
+Log & Error Safe : use check_condition() or run_command() for both normal and sensetive conditions or commands
+
+function_name() {
+	declare -n variable_ref=$1
+	variable_ref=123
+	echo $variable_ref
+}
+
+declare variable_name
+function_name variable_name
+
+===
 
 # bashutils_user_input
 

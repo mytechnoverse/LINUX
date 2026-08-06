@@ -1,49 +1,6 @@
 
-optionally use ( run error_message command_name command_args ... ) to specify error messages
 
 set -Eeuo pipefail
-
-declare -ga ERROR_STACK=()
-declare -ga ERROR_STACK_FUNCS=()
-declare -ga ERROR_STACK_FILES=()
-declare -ga ERROR_STACK_LINES=()
-
-try_push() {
-  local msg="$1"
-  local func="${FUNCNAME[1]:-main}"
-  local file="${BASH_SOURCE[1]:-script}"
-  local line="${BASH_LINENO[0]:-0}"
-    
-  ERROR_STACK+=("$msg")
-  ERROR_STACK_FUNCS+=("$func")
-  ERROR_STACK_FILES+=("$file")
-  ERROR_STACK_LINES+=("$line")
-}
-
-try_pop() {
-  if (( ${#ERROR_STACK[@]} > 0 ))
-  then
-    unset 'ERROR_STACK[-1]'
-    unset 'ERROR_STACK_FUNCS[-1]'
-    unset 'ERROR_STACK_FILES[-1]'
-    unset 'ERROR_STACK_LINES[-1]'
-    ERROR_STACK=("${ERROR_STACK[@]}")
-    ERROR_STACK_FUNCS=("${ERROR_STACK_FUNCS[@]}")
-    ERROR_STACK_FILES=("${ERROR_STACK_FILES[@]}")
-    ERROR_STACK_LINES=("${ERROR_STACK_LINES[@]}")
-  fi
-}
-
-run() {
-  local error_msg="$1"
-  shift
-  try_push "$error_msg"
-  "$@" 2>&1 || {
-    local exit_code=$?
-    return "$exit_code"
-  }
-  try_pop
-}
 
 error_handler() {
     local line=$1
@@ -68,79 +25,7 @@ error_handler() {
 
 trap 'error_handler $LINENO $?' ERR
 
-Z() {
-  # ls /nonexistent/directory 2>/dev/null
-  run "Z: ls failed" ls /nonexistent/directory 2>/dev/null
-}
-
-Y() {
-  # Z
-  run "Y: Z failed" Z
-}
-
-X() {
-  # Y
-  run "X: Y failed" Y
-}
-
-main() {
-  X
-  # run "script failed" X
-}
-
-main "$@"
-
 ===================================================================
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-undefine_aliases in exit_handler
-
-
-
-
-
-
-
-
-
-
-
-
-# true_condition=$(( boolean_variable1 == boolean_variable2 ))
-# false_condition=$(( boolean_variable1 != boolean_variable2 ))
-# try "$error_message" (( ! true_condition && false_condition ))
-
-
-
-run : appends every non checking ( effective ) command that is run in terminal to a bash array
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function positional argument data passing :
 
@@ -199,16 +84,6 @@ validate_domain_name
 #!/bin/bash
 source /usr/lib/bashutils/bashutils.bash
 bashutils_init
-function_name "variable_name" || return 1
-
-
-library convention :
-
-function_name() {
-  parameter_count 1 "$@" || return 1
-  is_variable_defined "$1" || return 1
-  declare "$declare_options_refrence" variable_name="$1"
-}
 
 ====== bashutils.bash :
 
@@ -218,22 +93,7 @@ declare -p bashutils_sourced &>/dev/null && return 0
 declare -g -a bashutils_error_list
 declare -g bashutils_sourced
 
-declare -g global_variable_option="-g"
-declare "$global_variable_option" string_lowercase_variable_option="-l"
-declare "$global_variable_option" string_uppercase_variable_option="-u"
-declare "$global_variable_option" integer_variable_option="-i"
-declare "$global_variable_option" boolean_variable_option="-i"
-declare "$global_variable_option" list_variable_option="-a"
-declare "$global_variable_option" dictionary_variable_option="-A"
-declare "$global_variable_option" reference_variable_option="-n"
-declare "$global_variable_option" export_variable_option="-x"
-declare "$global_variable_option" readonly_variable_option="-r"
-declare "$global_variable_option" "$boolean_variable_option" "$readonly_variable_option" true=0
-declare "$global_variable_option" "$boolean_variable_option" "$readonly_variable_option" false=1
-declare "$boolean_variable_option" true_condition
-declare "$boolean_variable_option" false_condition
-declare "$integer_variable_option" parent_function_index=1
-declare "$integer_variable_option" grand_parent_function_index=2
+
 
 
 # try error_message command_name
@@ -607,14 +467,6 @@ _bashutils_init() {
   declare -g _bashutils_error_message
   trap _bashutils_error_handler ERR
 }
-
-
-
-
-# curl || { curl_exit_code=$? }
-
-
-
 
 
 
