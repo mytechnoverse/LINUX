@@ -19,6 +19,45 @@ declare -ir bashutils_function_true=0
 declare -ir bashutils_function_false=1
 declare -r bashutils_sourced
 
+declare -a bashsible::secrets
+
+######################################################################################
+## append every password you get in prompts to the bashsible::secrets list
+## forget about _sensetive alternative of commands . search for elements of secrets list
+## in every log and error entry in EXIT and ERR traps before printing them to terminal
+## switch from file descriptor to process substitution for supplying passwords
+## also store output of stdout and stderr to variables instead of temp files .
+## also empty every secret variable name in the secrets list in the EXIT trap .
+## use run_command for subprocesses 
+
+# process substitution is secure from ps
+# convert stdin to process substitution : echo $var | command -> command < <(echo $var)
+# add ( sudo --remove-timestamp 2>/dev/null || true ) to the error handler script
+
+
+# curl --url "https://example.com" --config <(cat <<-EOF
+# user = "${user}:${password}"
+# header = "X-API-Key: ${api_key}"
+# EOF
+# )
+
+# curl --url "https://example.com" --config <(printf 'user = "%s:%s"\n' "$username" "$password")
+
+# use gpg --no-permission-warning if warning
+# gpg --batch --passphrase-file <(echo "$password")
+
+## openssl -pass file:<(echo "$password")
+
+## mkpasswd < <(echo "$password")
+
+# run_command_sudo() {
+#     sudo --stdin "$@" < <(printf '%s\n' "$password")
+#     sudo -n true 2>/dev/null && sudo --reset-timestamp
+# }
+
+######################################################################################
+
+
 # check_fqdn
 # check_port
 # run_command_sudo
@@ -88,7 +127,188 @@ prompt_user() {
 	done
 }
 
-# bashutils_check_password
+
+
+# user_managment::is_group_member group_name
+# user_managment::is_sudo_password password
+
+
+id --user --real : user id 
+id --user : user id effective
+id --user --name --real : user name
+id --user --name : user name effective
+
+
+id --group : group id effective
+id --group --name : group name effective
+id --groups : group ids
+id --groups --name : group names
+
+
+
+
+# declare -i current_user_id
+# user_managment::get_current_user_id current_user_id
+
+user_managment::get_current_user_id() {
+	parameter_count 1 "$@"
+	declare -n current_user_id_ref=$1
+	current_user_id_ref=$UID
+}
+
+# declare -i current_user_id_effective
+# user_managment::get_current_user_id_effective current_user_id_effective
+
+user_managment::get_current_user_id_effective() {
+	parameter_count 1 "$@"
+	declare -n current_user_id_ref=$1
+	current_user_id_ref=$EUID
+}
+
+# declare current_user_name
+# user_managment::get_current_user_name current_user_name
+
+user_managment::get_current_user_name() {
+	parameter_count 1 "$@"
+	declare -n current_user_name_ref=$1
+	current_user_name_ref="$(id --user --name --real)"
+}
+
+# declare current_user_name
+# user_managment::get_current_user_name current_user_name
+
+user_managment::get_current_user_name_effective() {
+	parameter_count 1 "$@"
+	declare -n current_user_name_effective_ref=$1
+	current_user_name_effective_ref="$(id --user --name)"
+}
+
+# declare -i current_user_group_id
+# user_managment::get_current_user_group_id current_user_group_id
+
+user_managment::get_current_user_group_id() {
+	parameter_count 1 "$@"
+	declare -n current_user_group_id_ref=$1
+	current_user_group_id_ref=$(id --group)
+}
+
+# declare current_user_group_name
+# user_managment::get_current_user_group_name current_user_group_name
+
+user_managment::get_current_user_group_name() {
+	parameter_count 1 "$@"
+	declare -n current_user_group_name_ref=$1
+	current_user_group_name_ref="$(id --group --name)"
+}
+
+# declare -a current_user_group_ids
+# user_managment::get_current_user_group_ids current_user_group_ids
+
+user_managment::get_current_user_group_ids() {
+	parameter_count 1 "$@"
+	declare -n current_user_group_ids_ref=$1
+	read -r -a current_user_group_ids_ref < <(id --groups)
+}
+
+# declare -a current_user_group_names
+# user_managment::get_current_user_group_names current_user_group_names
+
+user_managment::get_current_user_group_names() {
+	parameter_count 1 "$@"
+	declare -n current_user_group_names_ref=$1
+	read -r -a current_user_group_names_ref < <(id --groups --name)
+}
+
+# declare other_user_name="root"
+# declare -i other_user_id
+# user_managment::get_other_user_id other_user_name other_user_id
+
+user_managment::get_other_user_id() {
+	parameter_count 2 "$@"
+	declare -n other_user_name_ref=$1
+	declare -n other_user_id_ref=$2
+	other_user_id_ref=$(id --user -- $other_user_name_ref)
+}
+
+# declare -i other_user_id=0
+# declare other_user_name
+# user_managment::get_other_user_name other_user_id other_user_name
+
+
+##################################################################################
+	# run_command_pipe_output ( like this getent , check return code , if successful redirect stdout )
+	# run_command_pipe_secret ( for password , < <(echo $password) )
+	# run_command_pipe_file ( like curl --config , ssh file )
+###################################################################################
+
+user_managment::get_other_user_name() {
+	parameter_count 2 "$@"
+	declare -n other_user_id_ref=$1
+	declare -n other_user_name_ref=$2
+
+
+
+
+	# i need a helper that checks return code and captures stdout of the command in a variable 
+	declare passwd_file_entry
+
+	other_user_name_ref="$(getent passwd $other_user_id_ref | cut -d: -f1)"
+}
+
+
+
+IFS=: read -r username password uid gid gecos home shell < <(getent passwd "$user_id")
+
+
+IFS=: read -r other_user_name_ref _ _ _ _ _ < <(getent passwd $other_user_id_ref)
+
+
+
+
+
+
+
+# user_managment::get_user_name
+# user_managment::get_user_name_effective
+
+# user_managment::get_group_id
+# user_managment::get_group_name
+# user_managment::get_group_ids
+# user_managment::get_group_names
+
+
+remove_sudo_cache() {
+	sudo --reset-timestamp
+}
+
+# is_sudo_password bashutils_user_input
+
+is_sudo_password() {
+	parameter_count 1 "$@"
+	declare -n password_ref="$1"
+	remove_sudo_cache
+	check_condition_error "Sudo Authentication Failed With Supplied Password" sudo --stdin --validate < <(printf '%s\n' "$password_ref")
+	remove_sudo_cache
+}
+
+
+
+
+
+
+
+
+if [[ " $(id -nG) " == *" sudo "* ]]
+
+first check being in sudo group . if not : not authorized
+if in group , then check password
+
+
+
+password incorrect OR sudo not authorized
+
+
+# bashutils_check_password 
 
 bashutils_check_password() {
 	check_condition_error "Password should be at least 12 characters" is_string_length_min bashutils_user_input 12
