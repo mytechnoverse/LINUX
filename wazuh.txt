@@ -14,6 +14,8 @@ https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-dashboard/wazuh-dashboard_4
 Certs Tool :
 https://packages.wazuh.com/4.14/wazuh-certs-tool.sh
 
+Alerts Template :
+https://raw.githubusercontent.com/wazuh/wazuh/v4.14.7/extensions/elasticsearch/7.x/wazuh-template.json
 
 1 central wazuh indexer and dashboard
 1 wazuh server ( manager ) in each site
@@ -280,15 +282,19 @@ add :
 bootstrap.memory_lock: true
 
 sudo mkdir /etc/wazuh-indexer/certs/
+sudo chmod 555 /etc/wazuh-indexer/certs/
 
 sudo cp root-ca.pem /etc/wazuh-indexer/certs/
+sudo chmod 444 /etc/wazuh-indexer/certs/root-ca.pem
 sudo cp indexer.pem /etc/wazuh-indexer/certs/
-sudo cp indexer-key.pem /etc/wazuh-indexer/certs/
+sudo chmod 444 /etc/wazuh-indexer/certs/indexer.pem
 sudo cp admin.pem /etc/wazuh-indexer/certs/
+sudo chmod 444 /etc/wazuh-indexer/certs/admin.pem
+sudo cp indexer-key.pem /etc/wazuh-indexer/certs/
+sudo chmod 400 /etc/wazuh-indexer/certs/indexer-key.pem
 sudo cp admin-key.pem /etc/wazuh-indexer/certs/
+sudo chmod 400 /etc/wazuh-indexer/certs/admin-key.pem
 
-sudo chmod 500 /etc/wazuh-indexer/certs
-sudo find /etc/wazuh-indexer/certs -type f -exec chmod 400 {} +
 sudo chown -R wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/certs
 
 sudo mkdir -p /etc/systemd/system/wazuh-indexer.service.d/
@@ -304,6 +310,8 @@ sudo systemctl start wazuh-indexer
 sudo systemctl enable wazuh-indexer
 
 sudo /usr/share/wazuh-indexer/bin/indexer-security-init.sh
+
+/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh --change-password --username admin --password "NewIndexerPass123"
 
 
 
@@ -398,3 +406,129 @@ curl -fsS --connect-timeout 3 -k -u admin https://wazuh-indexer.local:9200/_cat/
 curl -fsS --connect-timeout 3 -k -u admin "https://wazuh-indexer.local:9200/_nodes?filter_path=**.mlockall&pretty"
 
 jq -e '.nodes | to_entries[0].value.process.mlockall == true' >/dev/null
+
+
+
+Server Install ::
+
+apt-get -y install ./wazuh-manager
+apt-get -y install ./filebeat
+
+sudo mv /etc/filebeat/filebeat.yml /etc/filebeat/filebeat.yml.bak
+
+/etc/filebeat/filebeat.yml :
+
+output.elasticsearch:
+  hosts: ["wazuh-indexer.internal:9200"]
+  protocol: https
+  username: ${username}
+  password: ${password}
+  ssl.certificate_authorities:
+    - /etc/filebeat/certs/root-ca.pem
+  ssl.certificate: "/etc/filebeat/certs/filebeat.pem"
+  ssl.key: "/etc/filebeat/certs/filebeat-key.pem"
+setup.template.json.enabled: true
+setup.template.json.path: '/etc/filebeat/wazuh-template.json'
+setup.template.json.name: 'wazuh'
+setup.ilm.overwrite: true
+setup.ilm.enabled: false
+
+filebeat.modules:
+  - module: wazuh
+    alerts:
+      enabled: true
+    archives:
+      enabled: false
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644
+
+logging.metrics.enabled: false
+
+seccomp:
+  default_action: allow
+  syscalls:
+  - action: allow
+    names:
+    - rseq
+
+
+sudo filebeat keystore add username --stdin --force < <(echo "admin")
+sudo filebeat keystore add password --stdin --force < <(echo "admin")
+
+sudo cp ./wazuh-template.json /etc/filebeat/wazuh-template.json
+sudo tar -x -C /usr/share/filebeat/module -f ./wazuh-filebeat-0.5.tar.gz
+
+sudo mkdir /etc/filebeat/certs/
+sudo chmod 555 /etc/filebeat/certs/
+
+sudo cp ./root-ca.pem /etc/filebeat/certs/
+sudo chmod 444 /etc/filebeat/certs/root-ca.pem
+sudo cp ./filebeat.pem /etc/filebeat/certs/
+sudo chmod 444 /etc/filebeat/certs/filebeat.pem
+sudo cp ./filebeat-key.pem /etc/filebeat/certs/
+sudo chmod 400 /etc/filebeat/certs/filebeat-key.pem
+
+chown -R root:root /etc/filebeat/certs
+
+sudo systemctl daemon-reload
+sudo systemctl enable wazuh-manager
+sudo systemctl start wazuh-manager
+
+sudo systemctl status wazuh-manager
+
+sudo systemctl enable filebeat
+sudo systemctl start filebeat
+
+sudo filebeat test output
+
+================================================
+
+sudo apt install ./wazuh-dashboard
+
+edit in place :
+
+/etc/wazuh-dashboard/opensearch_dashboards.yml :
+
+server.host: wazuh-dashboard.internal
+server.port: 443
+opensearch.hosts: https://wazuh-indexer.internal:9200
+opensearch.ssl.verificationMode: certificate
+
+sudo mkdir /etc/wazuh-dashboard/certs/
+sudo chmod 555 /etc/wazuh-dashboard/certs/
+
+sudo cp ./root-ca.pem /etc/wazuh-dashboard/certs/
+sudo chmod 444 /etc/wazuh-dashboard/certs/root-ca.pem
+sudo cp ./dashboard.pem /etc/wazuh-dashboard/certs/
+sudo chmod 444 /etc/wazuh-dashboard/certs/dashboard.pem
+sudo cp ./dashboard-key.pem /etc/wazuh-dashboard/certs/
+sudo chmod 400 /etc/wazuh-dashboard/certs/dashboard-key.pem
+
+sudo chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
+
+sudo systemctl daemon-reload
+sudo systemctl enable wazuh-dashboard
+sudo systemctl start wazuh-dashboard
+
+sudo mv /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml.bak
+
+/usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml :
+
+hosts:
+  - default:
+    url: https://wazuh-server.internal
+    port: 55000
+    username: wazuh-wui
+    password: wazuh-wui
+    run_as: true
+
+/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh
+
+
+
