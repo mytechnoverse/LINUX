@@ -528,7 +528,291 @@ hosts:
     password: wazuh-wui
     run_as: true
 
-/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh
+/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh ????
+
+=================================
+=================================================================================================
+
+ECDSA ( secp256r1 | P-256 | prime256v1 ) with SHA256 for wazuh
+
+--- checking certificate detail :
+
+openssl x509 -text -noout -in certificate.pem 
+
+--- checking request detail :
+
+openssl req -text -noout -in request.pem 
+
+--- specify sha256 hash algorithm :
+
+openssl x509 -req -sha256 ...
+
+--- filebeat should be pkcs8 :
+
+openssl pkcs8 -topk8 -nocrypt -in filebeat.key -out filebeat_pkcs8.key 
+
+--- indexer ( extendedKeyUsage ) extensions :
+
+openssl ecparam -genkey -name prime256v1 -out indexer.key
+openssl req -new -key indexer.key -out indexer.csr \
+  -subj "/CN=wazuh-indexer" \
+  -addext "subjectAltName=DNS:wazuh-indexer,DNS:localhost,IP:127.0.0.1" \
+  -addext "extendedKeyUsage=serverAuth,clientAuth"
+
+--- private key passing :
+
+openssl pkey -in <(printf '%s\n' "$private_key")
+
+============================================================================================
+
+sample :
+
+# 1. Create Root CA (ECDSA)
+openssl ecparam -genkey -name prime256v1 -out rootCA.key
+openssl req -new -x509 -sha256 -key rootCA.key -out rootCA.pem -days 3650 \
+  -subj "/C=US/O=Wazuh/CN=Wazuh-Root-CA"
+
+# 2. Generate certs for each component with same curve
+# Manager
+openssl ecparam -genkey -name prime256v1 -out manager.key
+openssl req -new -key manager.key -out manager.csr -subj "/CN=wazuh-manager"
+openssl x509 -req -sha256 -in manager.csr -CA rootCA.pem -CAkey rootCA.key \
+  -CAcreateserial -out manager.pem -days 3650
+
+# Indexer
+openssl ecparam -genkey -name prime256v1 -out indexer.key
+openssl req -new -key indexer.key -out indexer.csr -subj "/CN=wazuh-indexer" \
+  -addext "subjectAltName=DNS:wazuh-indexer,DNS:localhost,IP:127.0.0.1"
+openssl x509 -req -sha256 -in indexer.csr -CA rootCA.pem -CAkey rootCA.key \
+  -CAcreateserial -out indexer.pem -days 3650
+
+# Dashboard
+openssl ecparam -genkey -name prime256v1 -out dashboard.key
+openssl req -new -key dashboard.key -out dashboard.csr -subj "/CN=wazuh-dashboard" \
+  -addext "subjectAltName=DNS:wazuh-dashboard,DNS:localhost"
+openssl x509 -req -sha256 -in dashboard.csr -CA rootCA.pem -CAkey rootCA.key \
+  -CAcreateserial -out dashboard.pem -days 3650
+
+---------------------------------------------------------------------------------------
+
+
+declare first_line
+declare file_path
+get_first_line() {
+  declare -n first_line_ref=$1
+  declare file_path=$2
+  read -r first_line_ref < $file_path
+}
+
+is_file_encoding_pem() {
+  [[ "$first_line" =~ ^-----BEGIN[[:space:]].*-----$ ]]
+}
+
+is_file_certificate() {
+  [[ "$first_line" =~ ^-----BEGIN[[:space:]]CERTIFICATE-----$ ]] && openssl x509 -noout -in $file_path
+}
+
+is_file_cerificate_request() {
+  [[ "$first_line" =~ ^-----BEGIN[[:space:]]CERTIFICATE[[:space:]]REQUEST-----$ ]] && openssl req -noout -in $file_path
+}
+
+is_file_format_pkcs8() {
+  [[ "$first_line" =~ ^-----BEGIN[[:space:]](ENCRYPTED[[:space:]]+)?PRIVATE[[:space:]]KEY-----$ ]]
+}
+
+is_private_key_encrypted() {
+  [[ "$first_line" =~ ^-----BEGIN[[:space:]]ENCRYPTED[[:space:]]PRIVATE[[:space:]]KEY-----$ ]]
+}
+
+is_file_private_key() {
+  is_file_format_pkcs8
+  if is_private_key_encrypted $file_path
+  then
+    openssl pkey -noout -in $file_path -passin file:<(printf '%s\n' "$password") || return 1
+  else
+    openssl pkey -noout -in $file_path || return 1
+  fi
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+--- Generating Private Key :
+
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out ./root-ca.key
+chmod 400 ./root-ca.key
+
+--- Encrypting Private Key :
+
+-scrypt_N 131072 -scrypt_r 8 -scrypt_p 1 ( 128 MB RAM for Decryption )
+
+openssl pkcs8 -topk8 -scrypt -scrypt_N 131072 -scrypt_r 8 -scrypt_p 1 -in <(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256) -out ./root-ca-encrypted.key -passout file:<(printf '%s\n' "$password")
+
+
+=====================================================================================
+
+openssl req -new -x509 -sha256 -days 3650 \
+    -key root-ca/root-ca.key \
+    -out root-ca/root-ca.pem \
+    -subj "/C=US/ST=YourState/L=YourCity/O=YourOrg/OU=Security/CN=Wazuh-Root-CA" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -addext "subjectKeyIdentifier=hash"
+
+chmod 444 root-ca/root-ca.pem
+
+create indexer private key
+
+openssl req -new -sha256 \
+    -key indexer/indexer.key \
+    -out indexer/indexer.csr \
+    -subj "/C=US/ST=YourState/L=YourCity/O=YourOrg/OU=Indexer/CN=wazuh-indexer" \
+    -addext "subjectAltName=DNS:wazuh-indexer,DNS:localhost,DNS:indexer-1,DNS:indexer-2,DNS:indexer-3,IP:127.0.0.1,IP:192.168.1.10,IP:192.168.1.11,IP:192.168.1.12"
+
+
+openssl x509 -req -sha256 -days 3650 \
+    -in indexer/indexer.csr \
+    -CA root-ca/root-ca.pem \
+    -CAkey root-ca/root-ca.key \
+    -CAserial root-ca/serial \
+    -out indexer/indexer.pem \
+    -extfile <(cat <<EOF
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment,dataEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=DNS:wazuh-indexer,DNS:localhost,DNS:indexer-1,DNS:indexer-2,DNS:indexer-3,IP:127.0.0.1,IP:192.168.1.10,IP:192.168.1.11,IP:192.168.1.12
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+EOF
+)
+
+chmod 444 indexer/indexer.pem
+
+# Verify
+openssl verify -CAfile root-ca/root-ca.pem indexer/indexer.pem
+
+# This is for internal OpenSearch admin operations
+openssl ecparam -genkey -name prime256v1 -out indexer/indexer-admin.key
+openssl req -new -sha256 \
+    -key indexer/indexer-admin.key \
+    -out indexer/indexer-admin.csr \
+    -subj "/C=US/O=YourOrg/OU=Indexer-Admin/CN=admin"
+
+openssl x509 -req -sha256 -days 3650 \
+    -in indexer/indexer-admin.csr \
+    -CA root-ca/root-ca.pem \
+    -CAkey root-ca/root-ca.key \
+    -CAserial root-ca/serial \
+    -out indexer/indexer-admin.pem \
+    -extfile <(cat <<EOF
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=clientAuth
+EOF
+)
+
+chmod 400 indexer/indexer-admin.key
+chmod 444 indexer/indexer-admin.pem
+
+Create Filebeat Private Key
+
+openssl req -new -sha256 \
+    -key filebeat/filebeat.key \
+    -out filebeat/filebeat.csr \
+    -subj "/C=US/ST=YourState/L=YourCity/O=YourOrg/OU=Filebeat/CN=filebeat"
+
+
+openssl x509 -req -sha256 -days 3650 \
+    -in filebeat/filebeat.csr \
+    -CA root-ca/root-ca.pem \
+    -CAkey root-ca/root-ca.key \
+    -CAserial root-ca/serial \
+    -out filebeat/filebeat.pem \
+    -extfile <(cat <<EOF
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=clientAuth,serverAuth
+subjectAltName=DNS:filebeat,DNS:localhost,IP:127.0.0.1
+EOF
+)
+
+chmod 444 filebeat/filebeat.pem
+
+# Verify
+openssl verify -CAfile root-ca/root-ca.pem filebeat/filebeat.pem
+
+# Filebeat requires PKCS#8 format
+openssl pkcs8 -topk8 -nocrypt \
+    -in filebeat/filebeat.key \
+    -out filebeat/filebeat-pkcs8.key
+
+chmod 400 filebeat/filebeat-pkcs8.key
+
+Create Dashboard Private Key
+
+openssl req -new -sha256 \
+    -key dashboard/dashboard.key \
+    -out dashboard/dashboard.csr \
+    -subj "/C=US/ST=YourState/L=YourCity/O=YourOrg/OU=Dashboard/CN=wazuh-dashboard" \
+    -addext "subjectAltName=DNS:wazuh-dashboard,DNS:localhost,IP:127.0.0.1"
+
+openssl x509 -req -sha256 -days 3650 \
+    -in dashboard/dashboard.csr \
+    -CA root-ca/root-ca.pem \
+    -CAkey root-ca/root-ca.key \
+    -CAserial root-ca/serial \
+    -out dashboard/dashboard.pem \
+    -extfile <(cat <<EOF
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=DNS:wazuh-dashboard,DNS:localhost,IP:127.0.0.1
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+EOF
+)
+
+chmod 444 dashboard/dashboard.pem
+
+# Verify
+openssl verify -CAfile root-ca/root-ca.pem dashboard/dashboard.pem
+
+Generate Manager Certificate (If Using Agent Communication)
+
+openssl req -new -sha256 \
+    -key manager/manager.key \
+    -out manager/manager.csr \
+    -subj "/C=US/ST=YourState/L=YourCity/O=YourOrg/OU=Manager/CN=wazuh-manager" \
+    -addext "subjectAltName=DNS:wazuh-manager,DNS:localhost,IP:127.0.0.1"
+
+
+openssl x509 -req -sha256 -days 3650 \
+    -in manager/manager.csr \
+    -CA root-ca/root-ca.pem \
+    -CAkey root-ca/root-ca.key \
+    -CAserial root-ca/serial \
+    -out manager/manager.pem \
+    -extfile <(cat <<EOF
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=DNS:wazuh-manager,DNS:localhost,IP:127.0.0.1
+EOF
+)
+
+chmod 444 manager/manager.pem
 
 
 
+
+
+==============================================
+
+Extension	Root CA	Component Certs
+basicConstraints	CA:TRUE	CA:FALSE
+keyUsage	keyCertSign,cRLSign	digitalSignature,keyEncipherment
+extendedKeyUsage	—	serverAuth,clientAuth
+subjectAltName	—	All DNS names and IPs
+subjectKeyIdentifier	hash	hash
+authorityKeyIdentifier	—	keyid,issuer
