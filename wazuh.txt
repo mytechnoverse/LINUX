@@ -11,6 +11,9 @@ https://packages.wazuh.com/4.x/apt/pool/main/f/filebeat/filebeat_7.10.2-2_amd64.
 Dashboard :
 https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-dashboard/wazuh-dashboard_4.14.5-1_amd64.deb
 
+Passwords Tool :
+https://packages.wazuh.com/4.14/wazuh-passwords-tool.sh
+
 Certs Tool :
 https://packages.wazuh.com/4.14/wazuh-certs-tool.sh
 
@@ -20,39 +23,19 @@ https://raw.githubusercontent.com/wazuh/wazuh/v4.14.7/extensions/elasticsearch/7
 1 central wazuh indexer and dashboard
 1 wazuh server ( manager ) in each site
 
-
-wazuh indexer : Lets Encrypt signed TLS cert , Self Signed CA cert
-wazuh server(s) : Self Signed TLS cert , Lets Encrypt CA cert
-
-
-
-on destination , nftables dnat wazuh indexer pub ip tcp 443 -> wazuh indexer private ip tcp 9200   
-on source , nftables dant wazuh indexer pub ip tcp 9200 -> wazuh indexer pub ip tcp 443
-
-OpenSearch security plugin for the Indexer
-
-
-
-
-
-
-
-
-
-
-use rsyslog or syslog-ng for tls termination of syslog before passing to wazuh .
+windows client ( NXLOG or custom log forwarder )
+syslog over tls terminator : nginx or syslog ng or rsyslog
 
 mapping :
 node-1 : wazuh-indexer
 wazuh-1 : wazuh-server
 dashboard : wazuh-dashboard
 
-Wazuh Single Node Behind TLS Reverse Proxy :
-
 Dashboard 443 TCP Bind ALL ( network.host: "0.0.0.0" )
 Indexer API 9200 TCP Bind Local Host ( network.host: "127.0.0.1" )
 Manager API 55000 TCP Bind Local Host ( network.host: "127.0.0.1" )
 Manager 514 TCP Bind Local Host ( network.host: "127.0.0.1" )
+
 
 /usr/lib/wazuh-config-manager :
 
@@ -132,10 +115,6 @@ do
 done
 
 
-Executables and Directories : 755
-Conf Files and libraries : 644
-Private Key for root and sudo : 600
-Private Key for specific application : 640 
  
 ln -s ../lib/wazuh-config-manager/Wazuh-Config-Manager ./wazuh-config-manager/usr/bin/Wazuh-Config-Manager
 
@@ -158,57 +137,11 @@ chmod 755 ./wazuh-cert-manager/usr/local/bin/wazuh-crt-mgr
 dpkg-deb -Zzstd --build --root-owner-group ./wazuh-cert-manager wazuh-cert-manager_4.14.0-1_amd64.deb
 rm -rf ./wazuh-cert-manager
 
+--component { indexer | dashboard | server --server-type { master | worker } } --ca-key { Certificate Authority Private Key PATH }
 
 ===================================================================================================================================================================================================
 
 Indexer Install :
-
-#!/bin/bash
-set -Eeuo pipefail
-
-command -v gpg >/dev/null 2>&1 || exit 1
-[[ -f ./wazuh-certs-tool.sh ]] || exit 1
-[[ -x ./wazuh-certs-tool.sh ]] || chmod +x ./wazuh-certs-tool.sh
-
-rm -rf ./wazuh-certificates
-
-
-read -s -r -p "Enter Password : " GPG_PASS
-echo
-
-wazuh_component_name="indexer"
-wazuh_component_cert_cn="wazuh-indexer"
-wazuh_component_cert_san="wazuh-indexer.internal"
-wazuh_server_type="master"
-
-yq_query='
-  .nodes[strenv(wazuh_component_name)][0].name = strenv(wazuh_component_cert_cn) |
-  .nodes[strenv(wazuh_component_name)][0].ip = strenv(wazuh_component_cert_san)
-'
-
-[[ -z "$wazuh_server_type" ]] || {
-  yq_query+=' |
-    .nodes.server[0].node_type = strenv(wazuh_server_type)
-  '
-}
-
-wazuh_component_name="$wazuh_component_name" \
-wazuh_component_cert_cn="$wazuh_component_cert_cn" \
-wazuh_component_cert_san="$wazuh_component_cert_san" \
-wazuh_server_type="$wazuh_server_type" \
-yq -n "$yq_query" | tee "$wazuh_cert_tool_config_file_path"
-
-
-
---component { indexer | dashboard | server --server-type { master | worker } } --ca-key { Certificate Authority Private Key PATH }
-
-
-
-
-
-
-
-
 
 
 cat > config.yml <<'EOF'
@@ -266,6 +199,9 @@ sudo apt install ./wazuh-indexer*.deb
 
 sudo nano /etc/wazuh-indexer/opensearch.yml :
 
+( transport is for indexer to indexer communication . i only have 1 indexer . http is important !!! )
+
+
 edit :
 
 network.host: "127.0.0.1"
@@ -305,27 +241,25 @@ JVM_RAM_GB=$(((RAM_GB + 1) / 2))
 sudo sed -i "s|^-Xms.*$|-Xms${JVM_RAM_GB}g|" /etc/wazuh-indexer/jvm.options
 sudo sed -i "s|^-Xmx.*$|-Xmx${JVM_RAM_GB}g|" /etc/wazuh-indexer/jvm.options
 
+instead of changing passwords using wazuh-passwords-tool.sh :
+Generate a new password hash with hash.sh.
+Update the user's entry in internal_users.yml.
+Apply that configuration with securityadmin.sh
+
+indexer admin account : File Beat User , Dashboard login ( should contain one of .*+?- ) ??
+
+/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh --user admin --password 'NewPassword'
+
+indexer kibanaserver user : Dashboard communications
+
+/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh --user kibanaserver --password 'NewPassword'
+
 sudo systemctl daemon-reload
 sudo systemctl start wazuh-indexer
 sudo systemctl enable wazuh-indexer
 
-sudo /usr/share/wazuh-indexer/bin/indexer-security-init.sh
+sudo /usr/share/wazuh-indexer/bin/indexer-security-init.sh ?????
 
-/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh --change-password --username admin --password "NewIndexerPass123"
-
-
-
-
-Curl Download :
-curl -fsSL --compressed --connect-timeout 3
-
-
-Curl API Call :
-
-wazuh_username="admin"
-read -s -r -p "Enter Wazuh Password: " wazuh_password
-echo
-curl -fsS --connect-timeout 3 --config <(printf 'user = "%s:%s"\n' "$wazuh_username" "$wazuh_password")
 
 
 
@@ -412,6 +346,49 @@ jq -e '.nodes | to_entries[0].value.process.mlockall == true' >/dev/null
 Server Install ::
 
 apt-get -y install ./wazuh-manager
+
+create a manager certificate for each manager api with below config :
+
+subjectAltName = DNS:server-1.internal
+extendedKeyUsage = serverAuth
+
+owner : wazuh , group : wazuh
+
+/var/ossec/api/configuration/ssl/api.pem ( chmod 444 )
+/var/ossec/api/configuration/ssl/api-key.pem ( chmod 400 )
+/var/ossec/api/configuration/ssl/root-ca.pem ( chmod 444 )
+
+sudo nano /var/ossec/api/configuration/api.yaml :
+
+https:
+  enabled: yes
+  key: "api.pem"
+  cert: "api-key.pem"
+  use_ca: true
+  ca: "root-ca.pem"
+
+sudo systemctl restart wazuh-manager
+
+curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem https://server-1.internal:55000/
+
+wazuh_server_api_token=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --request POST --user wazuh:wazuh --url "https://wazuh-server-1.internal:55000/security/user/authenticate?raw=true" )
+wazuh_server_api_user_wazuh_password='xyz'
+
+curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --request PUT --url "https://wazuh-server-1.internal:55000/security/users/1" --data-raw @<(jq --null-input --arg password "$wazuh_server_api_user_wazuh_password" '{password: $password}') --config <(cat <<-EOF
+  header = "Authorization: Bearer ${wazuh_server_api_token}"
+  header = "Content-Type: application/json"
+EOF
+)
+
+wazuh_server_api_user_wazuh_wui_password='xyz'
+
+curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --request PUT --url "https://wazuh-server-1.internal:55000/security/users/2" --data-raw @<(jq --null-input --arg password "$wazuh_server_api_user_wazuh_wui_password" '{password: $password}') --config <(cat <<-EOF
+  header = "Authorization: Bearer ${wazuh_server_api_token}"
+  header = "Content-Type: application/json"
+EOF
+)
+
+
 apt-get -y install ./filebeat
 
 sudo mv /etc/filebeat/filebeat.yml /etc/filebeat/filebeat.yml.bak
@@ -512,11 +489,11 @@ sudo chmod 400 /etc/wazuh-dashboard/certs/dashboard-key.pem
 
 sudo chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
 
-sudo systemctl daemon-reload
-sudo systemctl enable wazuh-dashboard
-sudo systemctl start wazuh-dashboard
-
 sudo mv /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml.bak
+
+( specify wazuh-wui password specified in wazuh manager setup )
+
+opensearch_dashboards keystore ????????
 
 /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml :
 
@@ -528,7 +505,12 @@ hosts:
     password: wazuh-wui
     run_as: true
 
-/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh ????
+
+sudo systemctl daemon-reload
+sudo systemctl enable wazuh-dashboard
+sudo systemctl start wazuh-dashboard
+
+
 
 =================================
 =================================================================================================
@@ -628,7 +610,7 @@ is_file_private_key() {
   is_file_format_pkcs8
   if is_private_key_encrypted $file_path
   then
-    openssl pkey -noout -in $file_path -passin file:<(printf '%s\n' "$password") || return 1
+    openssl pkey -noout -in $file_path -check -passin file:<(printf '%s\n' "$password") || return 1
   else
     openssl pkey -noout -in $file_path || return 1
   fi
@@ -645,9 +627,60 @@ chmod 400 ./root-ca.key
 
 --- Encrypting Private Key :
 
--scrypt_N 131072 -scrypt_r 8 -scrypt_p 1 ( 128 MB RAM for Decryption )
+openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256 -saltlen 16 -iter 1000000 -in <(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256) -out ./xyz.com.pem.enc -passout file:<(printf '%s\n' "$password")
 
-openssl pkcs8 -topk8 -scrypt -scrypt_N 131072 -scrypt_r 8 -scrypt_p 1 -in <(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256) -out ./root-ca-encrypted.key -passout file:<(printf '%s\n' "$password")
+scrypt alternative :
+
+-scrypt -scrypt_N 131072 -scrypt_r 8 -scrypt_p 1 ( 128 MB RAM for Decryption )
+
+
+
+opensearch 2.19.5
+opensearch dashboards 2.19.5
+filebeat 7.10.2
+openssl 3.5.6
+
+
+
+
+
+
+dn data : openssl x509 -in indexer.pem -noout -subject
+
+
+/etc/wazuh-indexer/opensearch.yml :
+
+transport.ssl.enforce_hostname_verification: true
+plugins.security.nodes_dn:
+  - "CN=indexer.example.com,OU=...,O=...,L=...,ST=...,C=DE"
+
+
+plugins.security.ssl.http.enabled: true
+plugins.security.ssl.http.pemcert_filepath: /etc/wazuh-indexer/certs/indexer.pem
+plugins.security.ssl.http.pemkey_filepath: /etc/wazuh-indexer/certs/indexer-key.pem
+plugins.security.ssl.http.pemtrustedcas_filepath: /etc/wazuh-indexer/certs/root-ca.pem
+
+
+
+
+
+
+
+
+sudo -u wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.pemkey_password_secure < <(printf '%s\n' "$password")
+sudo -u wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore list
+  
+
+
+
+
+
+
+
+
+
+
+
 
 
 =====================================================================================
