@@ -1136,6 +1136,168 @@ debian packages : ca-certificates , debian-archive-keyring
 debootstrap in vm 
 
 
+/usr/lib/wazuh-config-manager :
+
+wazuh-certs-tool-4.14
+wazuh-config-manager-defs
+Wazuh-Config-Manager
+
+Wazuh-Config-Manager --generate-certs
+Wazuh-Config-Manager --install-certs { server | indexer | dashboard } --archive { Archive Path }
+Create-Deb-Package --source { FILE | DIR Path } --name { APT PKG Name } --version { X.Y.Z } --description { Download URL } [ --dependencies { APT PKG 1 } [ APT PKG 2 ]  ]
+
+
+DOMAIN_NAMES=("wazuh-indexer.internal" "wazuh-server.internal" "wazuh-dashboard.internal")
+A_RECORDS=("127.0.0.1" "127.0.0.1" "127.0.0.1")
+DOMAINS_COUNT=${#DOMAIN_NAMES[@]}
+for ((DOMAIN_Index=0; DOMAIN_Index<DOMAINS_COUNT; DOMAIN_Index++))
+do
+  DOMAIN_NAME="${DOMAIN_NAMES[$DOMAIN_Index]}"
+  A_RECORD="${A_RECORDS[$DOMAIN_Index]}"
+  ADD_HOST "$DOMAIN_NAME" "$A_RECORD" 
+done
+
+--component { indexer | dashboard | server --server-type { master | worker } } --ca-key { Certificate Authority Private Key PATH }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cat > config.yml <<'EOF'
+nodes:
+  indexer:
+    - name: wazuh-indexer
+      ip: "wazuh-indexer.internal"
+  server:
+    - name: wazuh-server
+      ip: "wazuh-server.internal"
+  dashboard:
+    - name: wazuh-dashboard
+      ip: "wazuh-dashboard.internal"
+EOF
+
+
+bash ./wazuh-certs-tool.sh -A
+
+rm -f ./wazuh-certificates-tool.log
+mv ./wazuh-certificates/wazuh-indexer.pem ./wazuh-certificates/indexer.pem
+mv ./wazuh-certificates/wazuh-indexer-key.pem ./wazuh-certificates/indexer-key.pem
+mv ./wazuh-certificates/wazuh-server.pem ./wazuh-certificates/filebeat.pem
+mv ./wazuh-certificates/wazuh-server-key.pem ./wazuh-certificates/filebeat-key.pem
+mv ./wazuh-certificates/wazuh-dashboard.pem ./wazuh-certificates/dashboard.pem
+mv ./wazuh-certificates/wazuh-dashboard-key.pem ./wazuh-certificates/dashboard-key.pem
+
+WAZUH_COMPONENTS=("wazuh-ca" "wazuh-indexer" "wazuh-server" "wazuh-dashboard")
+WAZUH_COMPONENTS_CERTS=(
+"./wazuh-certificates/root-ca.pem ./wazuh-certificates/root-ca.key"
+"./wazuh-certificates/root-ca.pem ./wazuh-certificates/indexer.pem ./wazuh-certificates/indexer-key.pem ./wazuh-certificates/admin.pem ./wazuh-certificates/admin-key.pem"
+"./wazuh-certificates/root-ca.pem ./wazuh-certificates/filebeat.pem ./wazuh-certificates/filebeat-key.pem"
+"./wazuh-certificates/root-ca.pem ./wazuh-certificates/dashboard.pem ./wazuh-certificates/dashboard-key.pem"
+)
+
+for WAZUH_COMP_Index in {0..3}
+do
+  ARCHIVE_NAME="${WAZUH_COMPONENTS[$WAZUH_COMP_Index]}.tar.gpg"
+  ARCHIVE_CERTS=(${WAZUH_COMPONENTS_CERTS[$WAZUH_COMP_Index]})
+  tar -c -f - "${ARCHIVE_CERTS[@]}" | gpg --batch --pinentry-mode loopback --passphrase-fd 3 --symmetric --cipher-algo AES256 --use-ocb-sym --compress-algo none --s2k-mode 3 --s2k-digest-algo SHA512 --s2k-count 65011712 -o "$ARCHIVE_NAME" 3<<<"$GPG_PASS"
+done
+
+rm -rf ./wazuh-certificates/
+
+# get-cert-hash cert_hash $cert_content ; echo $cert_hash
+
+get-cert-hash() {
+  local -n cert_hash="$1"
+  local cert_content="$2"
+  cert_hash=$(openssl x509 -noout -fingerprint -sha256 -in <(printf '%s\n' "$cert_content") | cut -d= -f2)
+}
+
+get_wazuh_local_component_cert_hash()
+
+
+# verify_wazuh_remote_component_cert --local-component { indexer | server | dashboard } --remote-component --remote-domain --remote-cert-hash 
+
+
+local wazuh_local_component_name="$1"
+local wazuh_remote_component_domain_name="$2"
+local wazuh_remote_component_cert_hash="$3"
+
+local wazuh_component_names=("indexer" "server" "dashboard")
+local wazuh_component_storage_paths=("/etc/wazuh-indexer/certs" "/etc/filebeat/certs" "/etc/wazuh-dashboard/certs")
+local wazuh_component_cert_file_names=("indexer.pem" "filebeat.pem" "dashboard.pem")
+
+local wazuh_local_component_storage_path
+local wazuh_component_cert_file_name
+
+for wazuh_component_index in "${!wazuh_component_names[@]}"
+do
+  if [[ "${wazuh_component_names[wazuh_component_index]}" -eq "$wazuh_component_name" ]]
+  then
+    wazuh_component_storage_path="${wazuh_component_storage_paths[$wazuh_component_index]}"
+    wazuh_component_cert_file_name="${wazuh_component_cert_file_names[$wazuh_component_index]}"
+    break
+  fi
+done
+
+local wazuh_ca_cert_path="${wazuh_component_storage_path}/root-ca.pem"
+local wazuh_ca_cert_content="$(SUDO cat $wazuh_ca_cert_path)"
+
+local wazuh_component_cert_file_path="${wazuh_component_storage_path}/${wazuh_component_cert_file_name}"
+local wazuh_component_cert_file_content="$(SUDO cat $wazuh_component_cert_file_path)"
+
+
+
+
+
+
+
+
+
+
+
+timeout 5s openssl s_client -connect "${wazuh_component_domain_name}:443" -servername "$wazuh_component_domain_name" -verify_return_error -CAfile <(printf '%s\n' "$CA_PEM")  </dev/null 2>/dev/null 
+
+| openssl x509 -noout -fingerprint -sha256 | cut -d= -f2
+
+
+
+
+
+
+
+if response=$(curl -fsS --connect-timeout 3 -k -u admin "$URL")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 systemd-detect-virt
