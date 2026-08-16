@@ -21,6 +21,7 @@ Alerts Template :
 https://raw.githubusercontent.com/wazuh/wazuh/v4.14.7/extensions/elasticsearch/7.x/wazuh-template.json
 
 wazuh 4.14.5
+java 21.0.10+7
 opensearch 2.19.5
 opensearch dashboards 2.19.5
 filebeat 7.10.2
@@ -43,11 +44,13 @@ Manager API 55000 TCP Bind Local Host ( network.host: "0.0.0.0" )
 Manager 514 TCP Bind Local Host ( network.host: "0.0.0.0" )
 
 
+ntp_server='172.16.1.1'
+
 sudo timedatectl set-timezone Etc/UTC
 sudo timedatectl set-local-rtc 0
 sudo apt install chrony
 sudo sed -i '/^pool/s/^/#/' /etc/chrony/chrony.conf
-printf "server ${NTP_SERVER} iburst\n" | sudo tee "/etc/chrony/conf.d/10-${NTP_SERVER}.conf" > /dev/null
+printf "server ${ntp_server} iburst\n" | sudo tee "/etc/chrony/conf.d/10-${ntp_server}.conf" > /dev/null
 sudo systemctl restart chrony
 chronyc waitsync 10
 
@@ -59,31 +62,90 @@ sudo apt install ./wazuh-indexer*.deb
 
 sudo nano /etc/wazuh-indexer/opensearch.yml :
 
-( transport is for indexer to indexer communication . i only have 1 indexer . http is important !!! )
+set your ip address in network.host
+node.name: certificate CN
+plugins.security.nodes_dn : certificate CN
+block port 9300 on that ip using firewall
+specifying ssl config for transport is mandatory
 
-dn data : openssl x509 -in indexer.pem -noout -subject
+
+
+
 
 
 /etc/wazuh-indexer/opensearch.yml :
 
-transport.ssl.enforce_hostname_verification: true
-plugins.security.nodes_dn:
-  - "CN=indexer.example.com,OU=...,O=...,L=...,ST=...,C=DE"
 
+network.host: "172.16.1.2"
+node.name: "wazuh-indexer"
+http.port: 9200
+transport.port: 9300
+discovery.type: single-node
+
+
+transport.ssl.enforce_hostname_verification: true ???
+
+
+plugins.security.authcz.admin_dn:
+  - "CN=wazuh-admin"
 
 plugins.security.ssl.http.enabled: true
+
+PKCS 8 :
+
+plugins.security.ssl.transport.pemcert_filepath: /etc/wazuh-indexer/certs/indexer-transport.pem
+plugins.security.ssl.transport.pemkey_filepath: /etc/wazuh-indexer/certs/indexer-key.pem
+plugins.security.ssl.transport.pemtrustedcas_filepath: /etc/wazuh-indexer/certs/root-ca.pem
+
 plugins.security.ssl.http.pemcert_filepath: /etc/wazuh-indexer/certs/indexer.pem
 plugins.security.ssl.http.pemkey_filepath: /etc/wazuh-indexer/certs/indexer-key.pem
-plugins.security.ssl.http.pemkey_password_secure: ""
 plugins.security.ssl.http.pemtrustedcas_filepath: /etc/wazuh-indexer/certs/root-ca.pem
+
+PKCS 12 :
+
+plugins.security.ssl.transport.keystore_type: PKCS12
+plugins.security.ssl.transport.truststore_type: PKCS12
+plugins.security.ssl.transport.keystore_filepath: "certs/node.p12"
+plugins.security.ssl.transport.truststore_filepath: /etc/wazuh-indexer/certs/root-ca.pfx
+
+plugins.security.ssl.http.keystore_type: PKCS12
+plugins.security.ssl.http.truststore_type: PKCS12
+plugins.security.ssl.http.keystore_filepath: /etc/wazuh-indexer/certs/indexer.pfx
+plugins.security.ssl.http.truststore_filepath: /etc/wazuh-indexer/certs/root-ca.pfx
+
+
+
+
+
+
+
 
 
 plugins.security.ssl.http.enabled_protocols:
   - "TLSv1.3"
+plugins.security.ssl.http.enabled_ciphers:
+  - "TLS_AES_128_GCM_SHA256"
+
+plugins.security.ssl.http.clientauth_mode: NONE
+
+plugins.security.password.hashing.algorithm: BCrypt
+plugins.security.password.hashing.bcrypt.rounds: 12
+plugins.security.password.hashing.bcrypt.minor: Y
 
 
 wazuh_indexer_private_key_password='xyz'
+
+PKCS8 :
+
+sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.transport.pemkey_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.pemkey_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
+
+PKCS12 :
+
+sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.transport.keystore_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
+sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.keystore_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
+
+
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore list
 
 
@@ -107,15 +169,15 @@ sudo mkdir /etc/wazuh-indexer/certs/
 sudo chmod 555 /etc/wazuh-indexer/certs/
 
 sudo cp root-ca.pem /etc/wazuh-indexer/certs/
-sudo chmod 444 /etc/wazuh-indexer/certs/root-ca.pem
+sudo chmod 644 /etc/wazuh-indexer/certs/root-ca.pem
 sudo cp indexer.pem /etc/wazuh-indexer/certs/
-sudo chmod 444 /etc/wazuh-indexer/certs/indexer.pem
+sudo chmod 644 /etc/wazuh-indexer/certs/indexer.pem
 sudo cp admin.pem /etc/wazuh-indexer/certs/
-sudo chmod 444 /etc/wazuh-indexer/certs/admin.pem
+sudo chmod 644 /etc/wazuh-indexer/certs/admin.pem
 sudo cp indexer-key.pem /etc/wazuh-indexer/certs/
-sudo chmod 400 /etc/wazuh-indexer/certs/indexer-key.pem
+sudo chmod 600 /etc/wazuh-indexer/certs/indexer-key.pem
 sudo cp admin-key.pem /etc/wazuh-indexer/certs/
-sudo chmod 400 /etc/wazuh-indexer/certs/admin-key.pem
+sudo chmod 600 /etc/wazuh-indexer/certs/admin-key.pem
 
 sudo chown -R wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/certs
 
@@ -126,6 +188,32 @@ TOTAL_RAM_GB=$((TOTAL_RAM_KB / 1024 / 1024))
 JVM_RAM_GB=$(((RAM_GB + 1) / 2))
 sudo sed -i "s|^-Xms.*$|-Xms${JVM_RAM_GB}g|" /etc/wazuh-indexer/jvm.options
 sudo sed -i "s|^-Xmx.*$|-Xmx${JVM_RAM_GB}g|" /etc/wazuh-indexer/jvm.options
+
+/etc/wazuh-indexer/opensearch-security/config.yml
+
+config:
+  dynamic:
+    authc:
+      basic_internal_auth_domain:
+        http_enabled: true
+        transport_enabled: false
+        order: 0
+        http_authenticator:
+          type: basic
+          challenge: true
+        authentication_backend:
+          type: intern
+
+
+
+
+
+
+
+
+/etc/wazuh-indexer/opensearch-security/internal_users.yml : bcrypt 12 Y 
+
+
 
 
 
@@ -178,12 +266,29 @@ sudo /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh
 
 
 
+securityadmin.sh : https://docs.opensearch.org/2.19/security/configuration/security-admin/
+https://docs.opensearch.org/2.19/security/configuration/yaml/
+
+change user passwords ( admin , kibanaserver , logstash ) in internal_users.yml using hash.sh file
+
+/usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh
+
+read the script lines and create the bcrypt entry yourself 
 
 
+/etc/wazuh-indexer/opensearch-security/internal_users.yml
 
+https://docs.opensearch.org/2.19/security/configuration/configuration/
 
+https://docs.opensearch.org/2.19/security/configuration/yaml/
 
+https://docs.opensearch.org/2.19/security/configuration/security-admin/
 
+https://docs.opensearch.org/2.19/security/configuration/api-rate-limiting/
+
+https://docs.opensearch.org/2.19/security/configuration/opensearch-keystore/
+
+https://docs.opensearch.org/2.19/install-and-configure/configuring-opensearch/security-settings/
 
 
 
@@ -511,6 +616,9 @@ chmod 400 ./root-ca.key
 
 --- Generating Encrypted Private Key :
 
+V1 : -v1 PBE-SHA1-3DES
+V2 : -v2 aes-256-cbc -v2prf hmacWithSHA256 -saltlen 16 -iter 1000000
+
 openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256 -saltlen 16 -iter 1000000 -in <(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256) -out ./root-ca.key -passout file:<(printf '%s\n' "$password")
 chmod 444 ./root-ca.key
 
@@ -520,7 +628,6 @@ ca_cert_extensions=$(cat <<-EOF
   basicConstraints=critical,CA:TRUE
   keyUsage=critical,keyCertSign,cRLSign
 	subjectKeyIdentifier=hash
-	authorityKeyIdentifier=keyid:always
 EOF
 )
 
@@ -535,21 +642,49 @@ openssl req -new -sha256 -key ./server-key.pem -passin file:<(printf '%s\n' "$pa
 
 server_cert_extensions=$(cat <<-EOF
   basicConstraints=critical,CA:FALSE
-  keyUsage=digitalSignature
+  keyUsage=critical,digitalSignature
+  subjectKeyIdentifier=hash
+  authorityKeyIdentifier=keyid,issuer
   extendedKeyUsage=serverAuth
   subjectAltName=DNS:wazuh-server.example.com
 EOF
 )
 
-openssl x509 -req -sha256 -days 3650 -CA ./root-ca.pem -CAkey ./root-ca.key -passin file:<(printf '%s\n' "$password") -in server.csr -out server.pem -extfile <(printf '%s' "$server_cert_extensions")
+certificate_serial=$(openssl rand -hex 16)
+openssl x509 -req -sha256 -days 3650 -CA ./root-ca.pem -set_serial "0x${certificate_serial}" -CAkey ./root-ca.key -passin file:<(printf '%s\n' "$password") -in server.csr -out server.pem -extfile <(printf '%s' "$server_cert_extensions")
 
+--- Generating Wazuh Indexer Admin Certificate :
 
+openssl req -new -sha256 -key ./server-key.pem -passin file:<(printf '%s\n' "$password") -out server.csr -subj "/CN=wazuh-admin"  
 
+client_cert_extensions=$(cat <<-EOF
+  basicConstraints=critical,CA:FALSE
+  keyUsage=critical,digitalSignature
+  subjectKeyIdentifier=hash
+  authorityKeyIdentifier=keyid,issuer
+  extendedKeyUsage=clientAuth
+EOF
+)
 
+certificate_serial=$(openssl rand -hex 16)
+openssl x509 -req -sha256 -days 3650 -CA ./root-ca.pem -set_serial "0x${certificate_serial}" -CAkey ./root-ca.key -passin file:<(printf '%s\n' "$password") -in admin.csr -out admin.pem -extfile <(printf '%s' "$client_cert_extensions")
 
--CAcreateserial ????
+--- Generating Wazuh Indexer Transport Certificate :
 
+openssl req -new -sha256 -key ./server-key.pem -passin file:<(printf '%s\n' "$password") -out server.csr -subj "/CN=wazuh-indexer"  
 
+wazuh_indexer_transport_extensions=$(cat <<-EOF
+  basicConstraints=critical,CA:FALSE
+  keyUsage=critical,digitalSignature
+  subjectKeyIdentifier=hash
+  authorityKeyIdentifier=keyid,issuer
+  extendedKeyUsage=serverAuth,clientAuth
+  subjectAltName=DNS:wazuh-indexer.internal,RID:1.2.3.4.5.5
+EOF
+)
+
+certificate_serial=$(openssl rand -hex 16)
+openssl x509 -req -sha256 -days 3650 -CA ./root-ca.pem -set_serial "0x${certificate_serial}" -CAkey ./root-ca.key -passin file:<(printf '%s\n' "$password") -in indexer-transport.csr -out indexer-transport.pem -extfile <(printf '%s' "$wazuh_indexer_transport_extensions")
 
 =====================================================================================
 
