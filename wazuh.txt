@@ -38,11 +38,22 @@ node-1 : wazuh-indexer
 wazuh-1 : wazuh-server
 dashboard : wazuh-dashboard
 
-Dashboard 443 TCP Bind ALL ( network.host: "0.0.0.0" )
-Indexer API 9200 TCP Bind Local Host ( network.host: "0.0.0.0" )
-Manager API 55000 TCP Bind Local Host ( network.host: "0.0.0.0" )
-Manager 514 TCP Bind Local Host ( network.host: "0.0.0.0" )
 
+PKCS12 supports encryption ( aes 256 cbc ) and integrity ( hmac sha256 )
+PKCS8 only supports encryption
+
+opensearch.yml :
+
+set your ip address in network.host
+node.name: certificate CN
+plugins.security.nodes_dn : certificate CN
+block port 9300 on that ip using firewall
+only filebeat needs CA but specifying ssl certificate , key , ca config for transport and http is mandatory
+
+
+===================================================================================================================================================================================================
+
+Indexer Install :
 
 ntp_server='172.16.1.1'
 
@@ -54,42 +65,31 @@ printf "server ${ntp_server} iburst\n" | sudo tee "/etc/chrony/conf.d/10-${ntp_s
 sudo systemctl restart chrony
 chronyc waitsync 10
 
-===================================================================================================================================================================================================
-
-Indexer Install :
-
 sudo apt install ./wazuh-indexer*.deb
+
+wazuh_indexer_private_key_password='xyz'
 
 sudo nano /etc/wazuh-indexer/opensearch.yml :
 
-set your ip address in network.host
-node.name: certificate CN
-plugins.security.nodes_dn : certificate CN
-block port 9300 on that ip using firewall
-specifying ssl config for transport is mandatory
-
-
-
-
-
-
-/etc/wazuh-indexer/opensearch.yml :
-
-
 network.host: "172.16.1.2"
 node.name: "wazuh-indexer"
-http.port: 9200
-transport.port: 9300
 discovery.type: single-node
-
-
-transport.ssl.enforce_hostname_verification: true ???
-
-
+cluster.initial_master_nodes:
+- "wazuh-indexer"
+transport.port: 9300
 plugins.security.authcz.admin_dn:
   - "CN=wazuh-admin"
-
+plugins.security.password.hashing.algorithm: BCrypt
+plugins.security.password.hashing.bcrypt.rounds: 12
+plugins.security.password.hashing.bcrypt.minor: Y
+bootstrap.memory_lock: true
+http.port: 9200
 plugins.security.ssl.http.enabled: true
+plugins.security.ssl.http.clientauth_mode: NONE
+plugins.security.ssl.http.enabled_protocols:
+  - "TLSv1.3"
+plugins.security.ssl.http.enabled_ciphers:
+  - "TLS_AES_128_GCM_SHA256"
 
 PKCS 8 :
 
@@ -101,11 +101,31 @@ plugins.security.ssl.http.pemcert_filepath: /etc/wazuh-indexer/certs/indexer.pem
 plugins.security.ssl.http.pemkey_filepath: /etc/wazuh-indexer/certs/indexer-key.pem
 plugins.security.ssl.http.pemtrustedcas_filepath: /etc/wazuh-indexer/certs/root-ca.pem
 
+sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.transport.pemkey_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
+sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.pemkey_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
+
 PKCS 12 :
+
+
+
+-------------------------------------------
+
+test pkcs12 being supported :
+
+/usr/share/wazuh-indexer/jdk/bin/keytool -list -v -storetype PKCS12 -keystore /etc/wazuh-indexer/certs/root-ca.pfx -storepass:file <(printf '%s' "$bundle_password")
+/usr/share/wazuh-indexer/jdk/bin/keytool -list -v -storetype PKCS12 -keystore /etc/wazuh-indexer/certs/indexer.pfx -storepass:file <(printf '%s' "$bundle_password")
+
+-------------------------------------------
+
+
+
+
+
+
 
 plugins.security.ssl.transport.keystore_type: PKCS12
 plugins.security.ssl.transport.truststore_type: PKCS12
-plugins.security.ssl.transport.keystore_filepath: "certs/node.p12"
+plugins.security.ssl.transport.keystore_filepath: /etc/wazuh-indexer/certs/indexer-transport.pfx
 plugins.security.ssl.transport.truststore_filepath: /etc/wazuh-indexer/certs/root-ca.pfx
 
 plugins.security.ssl.http.keystore_type: PKCS12
@@ -113,35 +133,8 @@ plugins.security.ssl.http.truststore_type: PKCS12
 plugins.security.ssl.http.keystore_filepath: /etc/wazuh-indexer/certs/indexer.pfx
 plugins.security.ssl.http.truststore_filepath: /etc/wazuh-indexer/certs/root-ca.pfx
 
-
-
-
-
-
-
-
-
-plugins.security.ssl.http.enabled_protocols:
-  - "TLSv1.3"
-plugins.security.ssl.http.enabled_ciphers:
-  - "TLS_AES_128_GCM_SHA256"
-
-plugins.security.ssl.http.clientauth_mode: NONE
-
-plugins.security.password.hashing.algorithm: BCrypt
-plugins.security.password.hashing.bcrypt.rounds: 12
-plugins.security.password.hashing.bcrypt.minor: Y
-
-
-wazuh_indexer_private_key_password='xyz'
-
-PKCS8 :
-
-sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.transport.pemkey_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
-sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.pemkey_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
-
-PKCS12 :
-
+sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.transport.truststore_password_secure < <(printf '%s\n' "$wazuh_ca_bundle_password")
+sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.truststore_password_secure < <(printf '%s\n' "$wazuh_ca_bundle_password")
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.transport.keystore_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.keystore_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
 
@@ -149,21 +142,6 @@ sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add -
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore list
 
 
-
-edit :
-
-network.host: "127.0.0.1"
-node.name: "wazuh-indexer"
-cluster.initial_master_nodes:
-- "wazuh-indexer"
-plugins.security.ssl.transport.enforce_hostname_verification: true
-plugins.security.ssl.transport.resolve_hostname: true
-plugins.security.nodes_dn:
-- "CN=wazuh-indexer,OU=Wazuh,O=Wazuh,L=California,C=US"
-
-add :
-
-bootstrap.memory_lock: true
 
 sudo mkdir /etc/wazuh-indexer/certs/
 sudo chmod 555 /etc/wazuh-indexer/certs/
@@ -346,6 +324,22 @@ apt-get -y install ./filebeat
 
 sudo mv /etc/filebeat/filebeat.yml /etc/filebeat/filebeat.yml.bak
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /etc/filebeat/filebeat.yml :
 
 output.elasticsearch:
@@ -355,9 +349,6 @@ output.elasticsearch:
   password: "${output.elasticsearch.password}"
   ssl.certificate_authorities:
     - /etc/filebeat/certs/root-ca.pem
-  ssl.certificate: "/etc/filebeat/certs/filebeat.pem"
-  ssl.key: "/etc/filebeat/certs/filebeat-key.pem"
-  ssl.key_passphrase: "${output.elasticsearch.ssl.key_passphrase}"
 setup.template.json.enabled: true
 setup.template.json.path: '/etc/filebeat/wazuh-template.json'
 setup.template.json.name: 'wazuh'
@@ -390,9 +381,6 @@ seccomp:
 
 wazuh_server_filebeat_user_admin_password='xyz'
 sudo filebeat keystore add --stdin --force output.elasticsearch.password  < <(echo "$wazuh_server_filebeat_user_admin_password")
-
-wazuh_server_filebeat_private_key_password='xyz'
-sudo filebeat keystore add --force --stdin output.elasticsearch.ssl.key_passphrase < <(echo "$wazuh_server_filebeat_private_key_password")
 
 sudo filebeat keystore list
 
@@ -609,18 +597,29 @@ is_file_private_key() {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 
---- Generating Private Key :
+--- Generating Private Key : ( PKCS8 , No Private Key Encyption , No Authentication )
 
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out ./root-ca.key
-chmod 400 ./root-ca.key
+chmod 600 ./root-ca.key
 
---- Generating Encrypted Private Key :
+--- Generating Encrypted Private Key : ( PKCS8 , Private Key Encyption , No Authentication )
 
 V1 : -v1 PBE-SHA1-3DES
 V2 : -v2 aes-256-cbc -v2prf hmacWithSHA256 -saltlen 16 -iter 1000000
 
 openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256 -saltlen 16 -iter 1000000 -in <(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256) -out ./root-ca.key -passout file:<(printf '%s\n' "$password")
 chmod 444 ./root-ca.key
+
+--- Generating PFX Bundle : ( PKCS12 , No Private Key Encyption , Bundle Authentication )
+
+pfx_key_password='xyz'
+openssl pkcs12 -export -in root-ca.pem -out root-ca.pfx -macalg SHA256 -macsaltlen 16 -certpbe NONE -iter 1000000 -passout file:<(printf '%s' "$pfx_key_password")
+
+--- Generating Encrypted PFX Bundle : ( PKCS12 , Private Key Encyption , Bundle Authentication )
+
+private_key_password='xyz'
+pfx_key_password='xyz'
+openssl pkcs12 -export -in server-cert.pem -out server.pfx -macalg SHA256 -macsaltlen 16 -certpbe NONE -iter 1000000 -passout file:<(printf '%s' "$pfx_key_password") -inkey server-key.pem -passin file:<(printf '%s' "$private_key_password") -certfile root-ca.pem -keypbe AES-256-CBC  
 
 --- Generating CA :
 
@@ -862,3 +861,29 @@ extendedKeyUsage	—	serverAuth,clientAuth
 subjectAltName	—	All DNS names and IPs
 subjectKeyIdentifier	hash	hash
 authorityKeyIdentifier	—	keyid,issuer
+
+
+=========================================================================================================
+=========================================================================================================
+
+filebeat removed configs :
+
+output.elasticsearch:
+  hosts:
+    - "https://indexer.example.com:9200"
+
+  username: "filebeat"
+  password: "YOUR_PASSWORD"
+
+  ssl:
+    certificate_authorities:
+      - "/etc/filebeat/certs/root-ca.pem"
+
+filebeat.yml :
+
+ssl.certificate: "/etc/filebeat/certs/filebeat.pem"
+ssl.key: "/etc/filebeat/certs/filebeat-key.pem"
+ssl.key_passphrase: "${output.elasticsearch.ssl.key_passphrase}"
+
+wazuh_server_filebeat_private_key_password='xyz'
+sudo filebeat keystore add --force --stdin output.elasticsearch.ssl.key_passphrase < <(echo "$wazuh_server_filebeat_private_key_password")
