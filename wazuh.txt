@@ -27,6 +27,46 @@ opensearch dashboards 2.19.5
 filebeat 7.10.2
 openssl 3.5.6
 
+
+jq :
+
+https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-amd64
+
+yq :
+
+https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64
+
+gawk :
+
+sudo apt install musl-tools build-essential xz-utils
+
+https://ftp.gnu.org/gnu/gawk/gawk-5.4.1.tar.xz
+
+export CC="musl-gcc"
+export CFLAGS="-O2"
+export LDFLAGS="-static"
+./configure --disable-nls --disable-extensions --disable-rpath --without-mpfr --without-readline --without-libintl
+make -j$(nproc)
+strip --strip-all ./gawk
+ldd ./gawk
+
+openssl 4.x.x compilation :
+
+https://github.com/openssl/openssl/releases/download/openssl-4.0.1/openssl-4.0.1.tar.gz
+
+sudo apt install musl-tools build-essential perl libtext-template-perl
+export CC="musl-gcc"
+export CFLAGS="-O2"
+export LDFLAGS="-static"
+export CPPFLAGS="-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu"
+./Configure no-shared no-module no-async no-dso linux-x86_64
+make -j$(nproc)
+strip --strip-all ./apps/openssl
+ldd ./apps/openssl
+
+
+32 Byte = 64 Hex
+
 1 central wazuh indexer and dashboard
 1 wazuh server ( manager ) in each site
 
@@ -66,6 +106,24 @@ sudo systemctl restart chrony
 chronyc waitsync 10
 
 sudo apt install ./wazuh-indexer*.deb
+sudo apt install whois
+
+password='abc'
+
+( Also change in Filebeat , Dashboard )
+
+read -r wazuh_indexer_admin_user_password < <(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:admin") HMAC)
+read -r wazuh_indexer_admin_user_hash < <(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_admin_user_password"))
+sudo -u wazuh-indexer env hash="$wazuh_indexer_admin_user_hash" yq -i '.admin.hash = strenv(hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
+
+( Also change in Dashboard )
+
+read -r wazuh_indexer_kibana_user_password < <(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:kibanaserver") HMAC)
+read -r wazuh_indexer_kibana_user_hash < <(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_kibana_user_password"))
+sudo -u wazuh-indexer env hash="$wazuh_indexer_kibana_user_hash" yq -i '.admin.hash = strenv(hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
+
+
+
 
 wazuh_indexer_private_key_password='xyz'
 
@@ -81,9 +139,9 @@ plugins.security.authcz.admin_dn:
   - "CN=wazuh-admin"
 plugins.security.password.hashing.algorithm: BCrypt
 plugins.security.password.hashing.bcrypt.rounds: 12
-plugins.security.password.hashing.bcrypt.minor: Y
+plugins.security.password.hashing.bcrypt.minor: B
 bootstrap.memory_lock: true
-http.port: 9200
+http.port: 443
 plugins.security.ssl.http.enabled: true
 plugins.security.ssl.http.clientauth_mode: NONE
 plugins.security.ssl.http.enabled_protocols:
@@ -106,8 +164,6 @@ sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add -
 
 PKCS 12 :
 
-
-
 -------------------------------------------
 
 test pkcs12 being supported :
@@ -116,12 +172,6 @@ test pkcs12 being supported :
 /usr/share/wazuh-indexer/jdk/bin/keytool -list -v -storetype PKCS12 -keystore /etc/wazuh-indexer/certs/indexer.pfx -storepass:file <(printf '%s' "$bundle_password")
 
 -------------------------------------------
-
-
-
-
-
-
 
 plugins.security.ssl.transport.keystore_type: PKCS12
 plugins.security.ssl.transport.truststore_type: PKCS12
@@ -182,32 +232,11 @@ config:
         authentication_backend:
           type: intern
 
-
-
-
-
-
-
-
-/etc/wazuh-indexer/opensearch-security/internal_users.yml : bcrypt 12 Y 
-
-
-
-
-
-indexer admin account : File Beat User , Dashboard login ( should contain one of .*+?- ) ??
-
-/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh --user admin --password 'NewPassword'
-
-indexer kibanaserver user : Dashboard communications
-
-/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh --user kibanaserver --password 'NewPassword'
-
 sudo systemctl daemon-reload
 sudo systemctl start wazuh-indexer
 sudo systemctl enable wazuh-indexer
 
-sudo /usr/share/wazuh-indexer/bin/indexer-security-init.sh ?????
+sudo /usr/share/wazuh-indexer/bin/indexer-security-init.sh
 
 
 
@@ -248,10 +277,6 @@ securityadmin.sh : https://docs.opensearch.org/2.19/security/configuration/secur
 https://docs.opensearch.org/2.19/security/configuration/yaml/
 
 change user passwords ( admin , kibanaserver , logstash ) in internal_users.yml using hash.sh file
-
-/usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh
-
-read the script lines and create the bcrypt entry yourself 
 
 
 /etc/wazuh-indexer/opensearch-security/internal_users.yml
@@ -343,7 +368,7 @@ sudo mv /etc/filebeat/filebeat.yml /etc/filebeat/filebeat.yml.bak
 /etc/filebeat/filebeat.yml :
 
 output.elasticsearch:
-  hosts: ["wazuh-indexer.internal:9200"]
+  hosts: ["wazuh-indexer.internal:443"]
   protocol: https
   username: admin
   password: "${output.elasticsearch.password}"
@@ -431,7 +456,7 @@ opensearch.ssl.verificationMode: full
 opensearch.ssl.certificateAuthorities: /etc/wazuh-dashboard/certs/root-ca.pem
 opensearch_security.cookie.secure: true
 server.port: 443
-opensearch.hosts: ['https://wazuh-indexer.internal:9200']
+opensearch.hosts: ['https://wazuh-indexer.internal:443']
 opensearch.username: "kibanaserver"
 opensearch.password: "${opensearch.password}"
 
