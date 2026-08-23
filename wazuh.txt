@@ -20,6 +20,9 @@ https://packages.wazuh.com/4.14/wazuh-certs-tool.sh
 Alerts Template :
 https://raw.githubusercontent.com/wazuh/wazuh/v4.14.7/extensions/elasticsearch/7.x/wazuh-template.json
 
+
+wazuh indexer jvm uses half of the system memory with the max limit of 32 GB for JVM memory 
+
 wazuh 4.14.5
 java 21.0.10+7
 opensearch 2.19.5
@@ -127,14 +130,16 @@ sudo -u wazuh-indexer env hash="$wazuh_indexer_kibana_user_hash" yq -i '.admin.h
 
 wazuh_indexer_private_key_password='xyz'
 
-sudo nano /etc/wazuh-indexer/opensearch.yml :
+sudo nano /etc/wazuh-indexer/opensearch.yml : ( Add )
 
 network.host: "172.16.1.2"
 node.name: "wazuh-indexer"
 discovery.type: single-node
-cluster.initial_master_nodes:
-- "wazuh-indexer"
 transport.port: 9300
+plugins.security.nodes_dn:
+- "CN=wazuh-indexer"
+plugins.security.ssl.transport.enforece_hostname_verification: true
+plugins.security.ssl.transport.resolve_hostname: true
 plugins.security.authcz.admin_dn:
   - "CN=wazuh-admin"
 plugins.security.password.hashing.algorithm: BCrypt
@@ -143,11 +148,21 @@ plugins.security.password.hashing.bcrypt.minor: B
 bootstrap.memory_lock: true
 http.port: 443
 plugins.security.ssl.http.enabled: true
-plugins.security.ssl.http.clientauth_mode: NONE
+plugins.security.ssl.http.clientauth_mode: OPTIONAL
 plugins.security.ssl.http.enabled_protocols:
   - "TLSv1.3"
 plugins.security.ssl.http.enabled_ciphers:
   - "TLS_AES_128_GCM_SHA256"
+
+==========================================================
+
+Comment :
+
+cluster.initial_master_nodes
+cluster.name
+
+==========================================================
+
 
 PKCS 8 :
 
@@ -157,7 +172,6 @@ plugins.security.ssl.transport.pemtrustedcas_filepath: /etc/wazuh-indexer/certs/
 
 plugins.security.ssl.http.pemcert_filepath: /etc/wazuh-indexer/certs/indexer.pem
 plugins.security.ssl.http.pemkey_filepath: /etc/wazuh-indexer/certs/indexer-key.pem
-plugins.security.ssl.http.pemtrustedcas_filepath: /etc/wazuh-indexer/certs/root-ca.pem
 
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.transport.pemkey_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.pemkey_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
@@ -175,16 +189,14 @@ test pkcs12 being supported :
 
 plugins.security.ssl.transport.keystore_type: PKCS12
 plugins.security.ssl.transport.truststore_type: PKCS12
-plugins.security.ssl.transport.keystore_filepath: /etc/wazuh-indexer/certs/indexer-transport.pfx
-plugins.security.ssl.transport.truststore_filepath: /etc/wazuh-indexer/certs/root-ca.pfx
+plugins.security.ssl.transport.keystore_filepath: certs/indexer-transport.pfx
+plugins.security.ssl.transport.truststore_filepath: certs/root-ca.pfx
 
 plugins.security.ssl.http.keystore_type: PKCS12
-plugins.security.ssl.http.truststore_type: PKCS12
-plugins.security.ssl.http.keystore_filepath: /etc/wazuh-indexer/certs/indexer.pfx
-plugins.security.ssl.http.truststore_filepath: /etc/wazuh-indexer/certs/root-ca.pfx
+plugins.security.ssl.http.keystore_filepath: certs/indexer.pfx
+
 
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.transport.truststore_password_secure < <(printf '%s\n' "$wazuh_ca_bundle_password")
-sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.truststore_password_secure < <(printf '%s\n' "$wazuh_ca_bundle_password")
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.transport.keystore_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.keystore_password_secure < <(printf '%s\n' "$wazuh_indexer_private_key_password")
 
@@ -211,11 +223,26 @@ sudo chown -R wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/certs
 
 sudo mkdir -p /etc/systemd/system/wazuh-indexer.service.d/
 printf "[Service]\nLimitMEMLOCK=infinity\n" | sudo tee /etc/systemd/system/wazuh-indexer.service.d/wazuh-indexer.conf > /dev/null
-TOTAL_RAM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-TOTAL_RAM_GB=$((TOTAL_RAM_KB / 1024 / 1024))
-JVM_RAM_GB=$(((RAM_GB + 1) / 2))
-sudo sed -i "s|^-Xms.*$|-Xms${JVM_RAM_GB}g|" /etc/wazuh-indexer/jvm.options
-sudo sed -i "s|^-Xmx.*$|-Xmx${JVM_RAM_GB}g|" /etc/wazuh-indexer/jvm.options
+
+total_ram_gb=$((total_ram_kb / 1024 / 1024))
+installed_ram_gb=$(gawk -v total_ram_gb="$total_ram_gb" 'BEGIN{printf "%d",2^(int(log(total_ram_gb)/log(2)+0.5))}') 
+
+VM :
+
+read -r _ memory_kb _ < /proc/meminfo
+
+Container : 
+
+read -r memory_b < /sys/fs/cgroup/memory.max
+memory_kb=$((memory_b / 1024))
+
+
+memory_gb=$(gawk -v memory_kb="$memory_kb" 'BEGIN{memory_gb=memory_kb/1024/1024;printf "%d",2^(int(log(memory_gb)/log(2)+0.5))}')
+
+wazuh_indexer_jvm_memory_limit=$((memory_gb / 2))
+
+sudo sed -i "s|^-Xms.*$|-Xms${wazuh_indexer_jvm_memory_limit}g|" /etc/wazuh-indexer/jvm.options
+sudo sed -i "s|^-Xmx.*$|-Xmx${wazuh_indexer_jvm_memory_limit}g|" /etc/wazuh-indexer/jvm.options
 
 /etc/wazuh-indexer/opensearch-security/config.yml
 
@@ -236,12 +263,46 @@ sudo systemctl daemon-reload
 sudo systemctl start wazuh-indexer
 sudo systemctl enable wazuh-indexer
 
-sudo /usr/share/wazuh-indexer/bin/indexer-security-init.sh
 
 
 
+sudo apt install expect
 
+#!/usr/bin/expect -f
 
+set timeout 60
+log_user 0
+
+set wazuh_indexer_ip [lindex $argv 0]
+set wazuh_indexer_port [lindex $argv 1]
+gets stdin wazuh_root_ca_pfx_password
+gets stdin wazuh_indexer_admin_pfx_password
+
+spawn sudo env JAVA_HOME=/usr/share/wazuh-indexer/jdk /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
+--ignore-clustername --fail-fast --keystore-type PKCS12 --truststore-type PKCS12 --prompt-for-password --config-dir /etc/wazuh-indexer/opensearch-security \
+--keystore /etc/wazuh-indexer/certs/indexer-admin.pfx --truststore /etc/wazuh-indexer/certs/root-ca.pfx --hostname $wazuh_indexer_ip --port $wazuh_indexer_port
+
+expect {
+  "Enter Truststore Password:" {
+    send -- "$wazuh_root_ca_pfx_password\r"
+    exp_continue
+  }
+  "Enter Keystore Password:" {
+    send -- "$wazuh_indexer_admin_pfx_password\r"
+    exp_continue
+  }
+  eof {
+    set result [wait]
+    exit [lindex $result 3]
+  }
+  timeout {
+    exit 124
+  }
+}
+
+wazuh_root_ca_pfx_password=''
+wazuh_indexer_admin_pfx_password=''
+expect ./securityadmin.exp "$wazuh_indexer_ip" "$wazuh_indexer_port" < <(printf '%s\n%s\n' "$wazuh_root_ca_pfx_password" "$wazuh_indexer_admin_pfx_password")
 
 
 
@@ -267,9 +328,7 @@ indexer admin certificate :
 
 https://opensearch.isharkfly.com/security/configuration/security-admin/#basic-usage
 
-Indexer admin certificate (securityadmin.sh ) :
 
-sudo /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh -cacert root-ca.pem -cert admin.pem -key admin-key.pem -keypass 'YOUR_KEY_PASSWORD'
 
 
 
@@ -662,7 +721,7 @@ chmod 444 ./root-ca.pem
 
 openssl req -new -sha256 -key ./server-key.pem -passin file:<(printf '%s\n' "$password") -out server.csr -subj "/CN=wazuh-server"  
 
---- Generating Certificate :
+--- Generating TLS Server Certificate :
 
 server_cert_extensions=$(cat <<-EOF
   basicConstraints=critical,CA:FALSE
@@ -677,7 +736,7 @@ EOF
 certificate_serial=$(openssl rand -hex 16)
 openssl x509 -req -sha256 -days 3650 -CA ./root-ca.pem -set_serial "0x${certificate_serial}" -CAkey ./root-ca.key -passin file:<(printf '%s\n' "$password") -in server.csr -out server.pem -extfile <(printf '%s' "$server_cert_extensions")
 
---- Generating Wazuh Indexer Admin Certificate :
+--- Generating TLS Client Certificate : ( Wazuh Indexer Admin )
 
 openssl req -new -sha256 -key ./server-key.pem -passin file:<(printf '%s\n' "$password") -out server.csr -subj "/CN=wazuh-admin"  
 
@@ -693,7 +752,7 @@ EOF
 certificate_serial=$(openssl rand -hex 16)
 openssl x509 -req -sha256 -days 3650 -CA ./root-ca.pem -set_serial "0x${certificate_serial}" -CAkey ./root-ca.key -passin file:<(printf '%s\n' "$password") -in admin.csr -out admin.pem -extfile <(printf '%s' "$client_cert_extensions")
 
---- Generating Wazuh Indexer Transport Certificate :
+--- Generating Mutual TLS Certificate : ( Wazuh Indexer Transport )
 
 openssl req -new -sha256 -key ./server-key.pem -passin file:<(printf '%s\n' "$password") -out server.csr -subj "/CN=wazuh-indexer"  
 
@@ -703,7 +762,7 @@ wazuh_indexer_transport_extensions=$(cat <<-EOF
   subjectKeyIdentifier=hash
   authorityKeyIdentifier=keyid,issuer
   extendedKeyUsage=serverAuth,clientAuth
-  subjectAltName=DNS:wazuh-indexer.internal,RID:1.2.3.4.5.5
+  subjectAltName=DNS:wazuh-indexer.internal
 EOF
 )
 
@@ -890,6 +949,15 @@ authorityKeyIdentifier	—	keyid,issuer
 
 =========================================================================================================
 =========================================================================================================
+
+Indexer removed configs :
+
+plugins.security.ssl.http.pemtrustedcas_filepath: /etc/wazuh-indexer/certs/root-ca.pem
+
+plugins.security.ssl.http.truststore_type: PKCS12
+plugins.security.ssl.http.truststore_filepath: certs/root-ca.pfx
+
+sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.truststore_password_secure < <(printf '%s\n' "$wazuh_ca_bundle_password")
 
 filebeat removed configs :
 
