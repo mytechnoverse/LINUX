@@ -30,6 +30,16 @@ declare -a bashsible::secrets
 ## also empty every secret variable name in the secrets list in the EXIT trap .
 ## use run_command for subprocesses 
 
+# secret variable with sudo passing paradigm :
+# secret_variable_name='xyz' ( prompted )
+# command='command < <(printf "%s\n" "$secret_variable_name")'
+# run_command_sudo_sensetive secret_variable_name command
+
+# run_command_sudo_sensetive() {
+#   export secret_variable_name
+#   sudo --stdin --preserve-env bash -c $command < <(printf '%s\n' "$sudo_password")
+#}
+
 # process substitution is secure from ps
 # convert stdin to process substitution : echo $var | command -> command < <(echo $var)
 # add ( sudo --remove-timestamp 2>/dev/null || true ) to the error handler script

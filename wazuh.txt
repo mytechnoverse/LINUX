@@ -21,7 +21,8 @@ Alerts Template :
 https://raw.githubusercontent.com/wazuh/wazuh/v4.14.7/extensions/elasticsearch/7.x/wazuh-template.json
 
 
-wazuh indexer jvm uses half of the system memory with the max limit of 32 GB for JVM memory 
+wazuh indexer jvm uses half of the system memory with the max limit of 32 GB for JVM memory
+meaning the wazuh indexer node could have 64 GB RAM maximum
 
 wazuh 4.14.5
 java 21.0.10+7
@@ -98,15 +99,18 @@ only filebeat needs CA but specifying ssl certificate , key , ca config for tran
 
 Indexer Install :
 
+sudo apt install chrony
 ntp_server='172.16.1.1'
-
 sudo timedatectl set-timezone Etc/UTC
 sudo timedatectl set-local-rtc 0
-sudo apt install chrony
 sudo sed -i '/^pool/s/^/#/' /etc/chrony/chrony.conf
-printf "server ${ntp_server} iburst\n" | sudo tee "/etc/chrony/conf.d/10-${ntp_server}.conf" > /dev/null
+printf 'server %s iburst\n' "$ntp_server" > /etc/chrony/conf.d/10-${ntp_server}.conf
 sudo systemctl restart chrony
-chronyc waitsync 10
+chronyc waitsync 10 0 0 1
+
+-------------------------------------------------
+
+
 
 sudo apt install ./wazuh-indexer*.deb
 sudo apt install whois
@@ -115,15 +119,17 @@ password='abc'
 
 ( Also change in Filebeat , Dashboard )
 
-read -r wazuh_indexer_admin_user_password < <(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:admin") HMAC)
-read -r wazuh_indexer_admin_user_hash < <(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_admin_user_password"))
-sudo -u wazuh-indexer env hash="$wazuh_indexer_admin_user_hash" yq -i '.admin.hash = strenv(hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
+wazuh_indexer_admin_user_password=$(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:admin") HMAC)
+wazuh_indexer_admin_user_hash=$(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_admin_user_password"))
+# export wazuh_indexer_admin_user_hash
+sudo --preserve-env --user wazuh-indexer yq -i '.admin.hash = strenv(wazuh_indexer_admin_user_hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
 
 ( Also change in Dashboard )
 
-read -r wazuh_indexer_kibana_user_password < <(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:kibanaserver") HMAC)
-read -r wazuh_indexer_kibana_user_hash < <(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_kibana_user_password"))
-sudo -u wazuh-indexer env hash="$wazuh_indexer_kibana_user_hash" yq -i '.admin.hash = strenv(hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
+wazuh_indexer_kibana_user_password=$(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:kibanaserver") HMAC)
+wazuh_indexer_kibana_user_hash=$(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_kibana_user_password"))
+# export wazuh_indexer_kibana_user_hash
+sudo --preserve-env --user wazuh-indexer yq -i '.kibanaserver.hash = strenv(wazuh_indexer_kibana_user_hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
 
 
 
@@ -307,17 +313,22 @@ expect ./securityadmin.exp "$wazuh_indexer_ip" "$wazuh_indexer_port" < <(printf 
 
 
 
-if ! jq -e '(.nodes | length == 1) and (.nodes[].process.mlockall == true)' <<<"$response" >/dev/null 
+
+wazuh_indexer_admin_user_password='xyz'
+curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --config <(printf 'user = "%s:%s"\n' "admin" "$wazuh_indexer_admin_user_password") --url https://wazuh-indexer.local
+
+
+wazuh_indexer_response=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --config <(printf 'user = "%s:%s"\n' "admin" "$wazuh_indexer_admin_user_password") --url "https://wazuh-indexer.local/_nodes?filter_path=**.mlockall")
+
+is_jvm_memory_limit_applied=$(jq --raw-output '.nodes[].process.mlockall' < <(printf '%s' "$wazuh_indexer_response"))
+
+
+[[ $is_jvm_memory_limit_applied == true ]] || exit 1
 
 
 
-curl -fsS --connect-timeout 3 -k -u admin https://wazuh-indexer.local:9200 ( default password admin )
 
-curl -fsS --connect-timeout 3 -k -u admin https://wazuh-indexer.local:9200/_cat/nodes?v
 
-curl -fsS --connect-timeout 3 -k -u admin "https://wazuh-indexer.local:9200/_nodes?filter_path=**.mlockall&pretty"
-
-jq -e '.nodes | to_entries[0].value.process.mlockall == true' >/dev/null
 
 
 
@@ -357,6 +368,53 @@ https://docs.opensearch.org/2.19/install-and-configure/configuring-opensearch/se
 Server Install ::
 
 apt-get -y install ./wazuh-manager
+
+
+
+
+
+cisco switches : syslog over TCP : 514
+fortiweb , fortigate : syslog over TLS : 6514 
+
+
+remove <remote> tag and add custom :
+
+edit indexer tag 
+
+
+
+
+
+wazuh_server_ip_address='172.16.1.2'
+wazuh_clients_ip_range='172.16.0.0/12'
+wazuh_server_memory_limit='8192'
+
+/var/ossec/etc/ossec.conf :
+
+<ossec_config>
+  <global>
+    <update_check>no</update_check>
+    <memory_size>${wazuh_server_memory_limit}</memory_size>
+  </global>
+  <remote>
+    <connection>syslog</connection>
+    <port>514</port>
+    <protocol>tcp</protocol>
+    <ipv6>no</ipv6>
+    <allowed-ips>${wazuh_clients_ip_range}</allowed-ips>
+    <local_ip>${wazuh_server_ip_address}</local_ip>
+  </remote>
+</ossec_config>
+
+
+
+
+
+
+
+
+
+
 
 ossec.conf :
 
@@ -430,7 +488,7 @@ output.elasticsearch:
   hosts: ["wazuh-indexer.internal:443"]
   protocol: https
   username: admin
-  password: "${output.elasticsearch.password}"
+  password: "${wazuh_indexer_admin_user_password}"
   ssl.certificate_authorities:
     - /etc/filebeat/certs/root-ca.pem
 setup.template.json.enabled: true
@@ -462,12 +520,12 @@ seccomp:
   - action: allow
     names:
     - rseq
+  
+sudo --preserve-env --user filebeat filebeat keystore list
+sudo --preserve-env --user filebeat filebeat keystore add --stdin --force wazuh_indexer_admin_user_password < <(echo "$wazuh_indexer_admin_user_password")
 
-wazuh_server_filebeat_user_admin_password='xyz'
-sudo filebeat keystore add --stdin --force output.elasticsearch.password  < <(echo "$wazuh_server_filebeat_user_admin_password")
-
-sudo filebeat keystore list
-
+sudo --preserve-env --user filebeat filebeat test config
+sudo --preserve-env --user filebeat filebeat test output
 
 check .keystore files ownership
 
