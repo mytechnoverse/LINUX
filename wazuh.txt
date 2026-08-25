@@ -369,33 +369,31 @@ Server Install ::
 
 apt-get -y install ./wazuh-manager
 
+/var/ossec/etc/ossec.conf :
 
 
 
 
-cisco switches : syslog over TCP : 514
-fortiweb , fortigate : syslog over TLS : 6514 
+disable Syscheck/FIM
 
-
-remove <remote> tag and add custom :
-
-edit indexer tag 
-
-
-
+//////////////////////// add <ruleset> tag from /var/ossec/etc/ossec.conf
 
 
 wazuh_server_ip_address='172.16.1.2'
 wazuh_clients_ip_range='172.16.0.0/12'
-wazuh_server_memory_limit='8192'
-
-/var/ossec/etc/ossec.conf :
+wazuh_server_memory_limit_mb='8192'
 
 <ossec_config>
+
   <global>
+    <alerts_log>yes</alerts_log>
+    <logall>no</logall>
+    <jsonout_output>yes</jsonout_output>
+    <logall_json>yes</logall_json>
     <update_check>no</update_check>
-    <memory_size>${wazuh_server_memory_limit}</memory_size>
+    <memory_size>${wazuh_server_memory_limit_mb}</memory_size>
   </global>
+
   <remote>
     <connection>syslog</connection>
     <port>514</port>
@@ -404,10 +402,134 @@ wazuh_server_memory_limit='8192'
     <allowed-ips>${wazuh_clients_ip_range}</allowed-ips>
     <local_ip>${wazuh_server_ip_address}</local_ip>
   </remote>
+
+  <alerts>
+    <log_alert_level>3</log_alert_level>
+  </alerts>
+
+  <logging>
+    <log_format>plain</log_format>
+  </logging>
+
+  <active-response>
+    <disabled>yes</disabled>
+  </active-response>
+
+  <auth>
+    <disabled>yes</disabled>
+  </auth>
+
+  <cluster>
+    <disabled>yes</disabled>
+  </cluster>
+
+  <fluent-forward>
+    <enabled>no</enabled>
+  </fluent-forward>
+
+  <github>
+    <enabled>no</enabled>
+  </github>
+
+  <ms-graph>
+    <enabled>no</enabled>
+  </ms-graph>
+
+  <office365>
+    <enabled>no</enabled>
+  </office365>
+
+  <rootcheck>
+    <disabled>yes</disabled>
+  </rootcheck>
+
+  <rule_test>
+    <enabled>yes</enabled>
+    <threads>1</threads>
+    <max_sessions>64</max_sessions>
+    <session_timeout>15m</session_timeout>
+  </rule_test>
+
+  <sca>
+    <enabled>no</enabled>
+  </sca>
+
+  <syscheck>
+    <disabled>yes</disabled>
+  </syscheck>
+
+  <vulnerability-detection>
+    <enabled>no</enabled>
+  </vulnerability-detection>
+
+  <wodle name="agent-key-polling">
+    <enabled>no</enabled>
+  </wodle>
+
+  <wodle name="aws-s3">
+    <disabled>yes</disabled>
+  </wodle>
+
+  <wodle name="azure-logs">
+    <disabled>yes</disabled>
+  </wodle>
+
+  <wodle name="command">
+    <disabled>yes</disabled>
+  </wodle>
+
+  <wodle name="docker-listener">
+    <disabled>yes</disabled>
+  </wodle>
+
+  <wodle name="osquery">
+    <disabled>yes</disabled>
+  </wodle>
+
+  <wodle name="syscollector">
+    <disabled>yes</disabled>
+  </wodle>
+
+  <wodle name="cis-cat">
+    <disabled>yes</disabled>
+  </wodle>
+
+  <gcp-pubsub>
+    <enabled>no</enabled>
+  </gcp-pubsub>
+
+  <gcp-bucket>
+    <enabled>no</enabled>
+  </gcp-bucket>
+
+  <indexer>
+    <enabled>yes</enabled>
+    <hosts>
+      <host>https://wazuh-indexer.local</host>
+    </hosts>
+    <ssl>
+      <certificate_authorities>
+        <ca>/etc/filebeat/certs/root-ca.pem</ca>
+      </certificate_authorities>
+      <certificate></certificate>
+      <key></key>
+    </ssl>
+  </indexer>
 </ossec_config>
 
 
 
+check 
+/var/ossec/logs/archives/archives.json
+
+/var/ossec/bin/wazuh-analysisd -t
+systemctl restart wazuh-manager
+systemctl status wazuh-manager
+
+
+
+cisco switches : syslog over TCP : 514
+fortiweb , fortigate : syslog over TLS : 6514 
 
 
 
@@ -416,9 +538,18 @@ wazuh_server_memory_limit='8192'
 
 
 
-ossec.conf :
 
-<ssl_protocol>TLSv1.3</ssl_protocol> ?????
+
+
+
+
+
+
+
+
+
+
+
 
 create a manager certificate for each manager api with below config :
 
@@ -462,6 +593,10 @@ EOF
 )
 
 
+
+filebeat archives should be true
+
+
 apt-get -y install ./filebeat
 
 sudo mv /etc/filebeat/filebeat.yml /etc/filebeat/filebeat.yml.bak
@@ -502,7 +637,7 @@ filebeat.modules:
     alerts:
       enabled: true
     archives:
-      enabled: false
+      enabled: true
 
 logging.level: info
 logging.to_files: true
@@ -627,6 +762,9 @@ hosts:
 sudo systemctl daemon-reload
 sudo systemctl enable wazuh-dashboard
 sudo systemctl start wazuh-dashboard
+
+
+☰ → Dashboard Management → Index Patterns : wazuh-archives-* -> time field : timestamp ( without @ )
 
 
 
