@@ -117,7 +117,7 @@ sudo apt install whois
 
 password='abc'
 
-( Also change in Filebeat , Dashboard )
+Also change in Filebeat , Manager
 
 wazuh_indexer_admin_user_password=$(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:admin") HMAC)
 wazuh_indexer_admin_user_hash=$(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_admin_user_password"))
@@ -153,6 +153,8 @@ plugins.security.password.hashing.bcrypt.rounds: 12
 plugins.security.password.hashing.bcrypt.minor: B
 bootstrap.memory_lock: true
 http.port: 443
+http.compression: true
+compression_level: 3
 plugins.security.ssl.http.enabled: true
 plugins.security.ssl.http.clientauth_mode: OPTIONAL
 plugins.security.ssl.http.enabled_protocols:
@@ -162,10 +164,7 @@ plugins.security.ssl.http.enabled_ciphers:
 
 ==========================================================
 
-Comment :
-
-cluster.initial_master_nodes
-cluster.name
+Comment : cluster.* from the file
 
 ==========================================================
 
@@ -252,18 +251,30 @@ sudo sed -i "s|^-Xmx.*$|-Xmx${wazuh_indexer_jvm_memory_limit}g|" /etc/wazuh-inde
 
 /etc/wazuh-indexer/opensearch-security/config.yml
 
+_meta:
+  type: "config"
+  config_version: 2
 config:
   dynamic:
     authc:
       basic_internal_auth_domain:
         http_enabled: true
-        transport_enabled: false
+        transport_enabled: true
         order: 0
         http_authenticator:
           type: basic
           challenge: true
         authentication_backend:
           type: intern
+auth_failure_listeners:
+  internal_authentication_backend_limiting:
+    type: username
+    authentication_backend: internal
+    allowed_tries: 3
+    time_window_seconds: 60
+    block_expiry_seconds: 300
+
+
 
 sudo systemctl daemon-reload
 sudo systemctl start wazuh-indexer
@@ -372,18 +383,21 @@ apt-get -y install ./wazuh-manager
 /var/ossec/etc/ossec.conf :
 
 
-
-
-disable Syscheck/FIM
-
-//////////////////////// add <ruleset> tag from /var/ossec/etc/ossec.conf
-
-
 wazuh_server_ip_address='172.16.1.2'
 wazuh_clients_ip_range='172.16.0.0/12'
 wazuh_server_memory_limit_mb='8192'
 
 <ossec_config>
+
+  <ruleset>
+    <decoder_dir>ruleset/decoders</decoder_dir>
+    <rule_dir>ruleset/rules</rule_dir>
+    <rule_exclude>0215-policy_rules.xml</rule_exclude>
+    <list>etc/lists/audit-keys</list>
+    <list>etc/lists/security-eventchannel</list>
+    <decoder_dir>etc/decoders</decoder_dir>
+    <rule_dir>etc/rules</rule_dir>
+  </ruleset>
 
   <global>
     <alerts_log>yes</alerts_log>
@@ -507,6 +521,7 @@ wazuh_server_memory_limit_mb='8192'
     <hosts>
       <host>https://wazuh-indexer.local</host>
     </hosts>
+    <username>admin</username>
     <ssl>
       <certificate_authorities>
         <ca>/etc/filebeat/certs/root-ca.pem</ca>
@@ -517,7 +532,7 @@ wazuh_server_memory_limit_mb='8192'
   </indexer>
 </ossec_config>
 
-
+/var/ossec/bin/wazuh-keystore -f indexer -k password < <(printf '%s\n' "$wazuh_indexer_admin_user_password")
 
 check 
 /var/ossec/logs/archives/archives.json
@@ -600,17 +615,6 @@ filebeat archives should be true
 apt-get -y install ./filebeat
 
 sudo mv /etc/filebeat/filebeat.yml /etc/filebeat/filebeat.yml.bak
-
-
-
-
-
-
-
-
-
-
-
 
 
 
