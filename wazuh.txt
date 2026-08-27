@@ -11,26 +11,39 @@ https://packages.wazuh.com/4.x/apt/pool/main/f/filebeat/filebeat_7.10.2-2_amd64.
 Dashboard :
 https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-dashboard/wazuh-dashboard_4.14.5-1_amd64.deb
 
-Passwords Tool :
-https://packages.wazuh.com/4.14/wazuh-passwords-tool.sh
-
-Certs Tool :
-https://packages.wazuh.com/4.14/wazuh-certs-tool.sh
-
 Alerts Template :
 https://raw.githubusercontent.com/wazuh/wazuh/v4.14.7/extensions/elasticsearch/7.x/wazuh-template.json
 
-
-wazuh indexer jvm uses half of the system memory with the max limit of 32 GB for JVM memory
-meaning the wazuh indexer node could have 64 GB RAM maximum
-
 wazuh 4.14.5
-java 21.0.10+7
+java 21.0.10
 opensearch 2.19.5
 opensearch dashboards 2.19.5
 filebeat 7.10.2
 openssl 3.5.6
 
+wazuh decodes logs in RFC 5424 format
+
+sha256 derived key is 32 Byte represented as 64 Hex characters
+
+opensearch jvm memory limit should be set to half of VM / Container RAM
+each wazuh indexer could use up to 32 GB RAM maximum
+
+each wazuh manager needs at least 2 GB RAM
+
+1 central wazuh indexer and dashboard
+1 wazuh server ( manager + filebeat ) in each site
+
+Cisco Switches : syslog over TCP Port 514
+Fortiweb , Fortigate : syslog over TLS TCP Port 6514
+Windows : NXLOG | Fluent Bit | Solarwinds
+wazuh manager : nginx as tls terminator 6514 -> 514 
+
+PKCS12 supports encryption ( aes 256 cbc ) and integrity ( hmac sha256 )
+PKCS8 only supports encryption
+
+indexer admin : filebeat admin
+indexer kibanaserver : dashboard kibanaserver
+manager wazuh-wui : dashboard wazuh-wui
 
 jq :
 
@@ -68,32 +81,31 @@ make -j$(nproc)
 strip --strip-all ./apps/openssl
 ldd ./apps/openssl
 
+Nginx Reverse Proxy :
 
-32 Byte = 64 Hex
-
-1 central wazuh indexer and dashboard
-1 wazuh server ( manager ) in each site
-
-windows client ( NXLOG or custom log forwarder )
-syslog over tls terminator : nginx or syslog ng or rsyslog
-
-mapping :
-node-1 : wazuh-indexer
-wazuh-1 : wazuh-server
-dashboard : wazuh-dashboard
+stream {
+  server {
+    listen 6514 ssl;
+    proxy_pass 127.0.0.1:514;
+    ssl_certificate /etc/nginx/certs/proxy.crt;
+    ssl_certificate_key /etc/nginx/certs/proxy.key;
+    ssl_protocols TLSv1.3;
+  }
+}
 
 
-PKCS12 supports encryption ( aes 256 cbc ) and integrity ( hmac sha256 )
-PKCS8 only supports encryption
 
-opensearch.yml :
+
+
+
+opensearch configuration notes :
 
 set your ip address in network.host
 node.name: certificate CN
 plugins.security.nodes_dn : certificate CN
 block port 9300 on that ip using firewall
 only filebeat needs CA but specifying ssl certificate , key , ca config for transport and http is mandatory
-
+comment ( cluster.* ) directives from the file
 
 ===================================================================================================================================================================================================
 
@@ -108,8 +120,6 @@ printf 'server %s iburst\n' "$ntp_server" > /etc/chrony/conf.d/10-${ntp_server}.
 sudo systemctl restart chrony
 chronyc waitsync 10 0 0 1
 
--------------------------------------------------
-
 
 
 sudo apt install ./wazuh-indexer*.deb
@@ -117,14 +127,10 @@ sudo apt install whois
 
 password='abc'
 
-Also change in Filebeat , Manager
-
 wazuh_indexer_admin_user_password=$(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:admin") HMAC)
 wazuh_indexer_admin_user_hash=$(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_admin_user_password"))
 # export wazuh_indexer_admin_user_hash
 sudo --preserve-env --user wazuh-indexer yq -i '.admin.hash = strenv(wazuh_indexer_admin_user_hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
-
-( Also change in Dashboard )
 
 wazuh_indexer_kibana_user_password=$(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:kibanaserver") HMAC)
 wazuh_indexer_kibana_user_hash=$(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_kibana_user_password"))
@@ -161,12 +167,7 @@ plugins.security.ssl.http.enabled_protocols:
   - "TLSv1.3"
 plugins.security.ssl.http.enabled_ciphers:
   - "TLS_AES_128_GCM_SHA256"
-
-==========================================================
-
-Comment : cluster.* from the file
-
-==========================================================
+config.dynamic.http.anonymous_auth_enabled: false
 
 
 PKCS 8 :
@@ -265,7 +266,7 @@ config:
           type: basic
           challenge: true
         authentication_backend:
-          type: intern
+          type: internal
 auth_failure_listeners:
   internal_authentication_backend_limiting:
     type: username
@@ -321,19 +322,11 @@ wazuh_root_ca_pfx_password=''
 wazuh_indexer_admin_pfx_password=''
 expect ./securityadmin.exp "$wazuh_indexer_ip" "$wazuh_indexer_port" < <(printf '%s\n%s\n' "$wazuh_root_ca_pfx_password" "$wazuh_indexer_admin_pfx_password")
 
-
-
-
-
 wazuh_indexer_admin_user_password='xyz'
 curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --config <(printf 'user = "%s:%s"\n' "admin" "$wazuh_indexer_admin_user_password") --url https://wazuh-indexer.local
-
-
 wazuh_indexer_response=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --config <(printf 'user = "%s:%s"\n' "admin" "$wazuh_indexer_admin_user_password") --url "https://wazuh-indexer.local/_nodes?filter_path=**.mlockall")
 
 is_jvm_memory_limit_applied=$(jq --raw-output '.nodes[].process.mlockall' < <(printf '%s' "$wazuh_indexer_response"))
-
-
 [[ $is_jvm_memory_limit_applied == true ]] || exit 1
 
 
@@ -341,38 +334,6 @@ is_jvm_memory_limit_applied=$(jq --raw-output '.nodes[].process.mlockall' < <(pr
 
 
 
-
-
-
-
-
-indexer admin certificate :
-
-https://opensearch.isharkfly.com/security/configuration/security-admin/#basic-usage
-
-
-
-
-
-securityadmin.sh : https://docs.opensearch.org/2.19/security/configuration/security-admin/
-https://docs.opensearch.org/2.19/security/configuration/yaml/
-
-change user passwords ( admin , kibanaserver , logstash ) in internal_users.yml using hash.sh file
-
-
-/etc/wazuh-indexer/opensearch-security/internal_users.yml
-
-https://docs.opensearch.org/2.19/security/configuration/configuration/
-
-https://docs.opensearch.org/2.19/security/configuration/yaml/
-
-https://docs.opensearch.org/2.19/security/configuration/security-admin/
-
-https://docs.opensearch.org/2.19/security/configuration/api-rate-limiting/
-
-https://docs.opensearch.org/2.19/security/configuration/opensearch-keystore/
-
-https://docs.opensearch.org/2.19/install-and-configure/configuring-opensearch/security-settings/
 
 
 
@@ -413,7 +374,10 @@ wazuh_server_memory_limit_mb='8192'
     <port>514</port>
     <protocol>tcp</protocol>
     <ipv6>no</ipv6>
-    <allowed-ips>${wazuh_clients_ip_range}</allowed-ips>
+    <allowed-ips>
+      <ip>${wazuh_clients_ip_range}</ip>
+      <ip>127.0.0.1/32</ip>
+    </allowed-ips>
     <local_ip>${wazuh_server_ip_address}</local_ip>
   </remote>
 
@@ -424,6 +388,13 @@ wazuh_server_memory_limit_mb='8192'
   <logging>
     <log_format>plain</log_format>
   </logging>
+
+  <rule_test>
+    <enabled>yes</enabled>
+    <threads>1</threads>
+    <max_sessions>64</max_sessions>
+    <session_timeout>15m</session_timeout>
+  </rule_test>
 
   <active-response>
     <disabled>yes</disabled>
@@ -456,13 +427,6 @@ wazuh_server_memory_limit_mb='8192'
   <rootcheck>
     <disabled>yes</disabled>
   </rootcheck>
-
-  <rule_test>
-    <enabled>yes</enabled>
-    <threads>1</threads>
-    <max_sessions>64</max_sessions>
-    <session_timeout>15m</session_timeout>
-  </rule_test>
 
   <sca>
     <enabled>no</enabled>
@@ -517,22 +481,9 @@ wazuh_server_memory_limit_mb='8192'
   </gcp-bucket>
 
   <indexer>
-    <enabled>yes</enabled>
-    <hosts>
-      <host>https://wazuh-indexer.local</host>
-    </hosts>
-    <username>admin</username>
-    <ssl>
-      <certificate_authorities>
-        <ca>/etc/filebeat/certs/root-ca.pem</ca>
-      </certificate_authorities>
-      <certificate></certificate>
-      <key></key>
-    </ssl>
+    <enabled>no</enabled>
   </indexer>
 </ossec_config>
-
-/var/ossec/bin/wazuh-keystore -f indexer -k password < <(printf '%s\n' "$wazuh_indexer_admin_user_password")
 
 check 
 /var/ossec/logs/archives/archives.json
@@ -543,21 +494,34 @@ systemctl status wazuh-manager
 
 
 
-cisco switches : syslog over TCP : 514
-fortiweb , fortigate : syslog over TLS : 6514 
+https://documentation.wazuh.com/current/user-manual/api/configuration.html?utm_source=chatgpt.com
+
+
+/var/ossec/api/configuration/ssl/server.private.key.pem
+/var/ossec/api/configuration/ssl/server.certificate.pem
+
+
+/var/ossec/api/configuration/api.yaml :
+
+host: ['172.16.1.2']
+port: 443
+drop_privileges: true
+experimental_features: false
+https:
+  enabled: true
+  key: "server.private.key.pem"
+  cert: "server.certificate.pem"
+  use_ca: false
+  ssl_protocol: TLSv1.3
+  ssl_ciphers: TLS_AES_128_GCM_SHA256
+
+access:
+  max_login_attempts: 3
+  block_time: 300
 
 
 
-
-
-
-
-
-
-
-
-
-
+sudo systemctl restart wazuh-manager
 
 
 
@@ -628,8 +592,9 @@ output.elasticsearch:
   protocol: https
   username: admin
   password: "${wazuh_indexer_admin_user_password}"
-  ssl.certificate_authorities:
-    - /etc/filebeat/certs/root-ca.pem
+  ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
+  ssl.supported_protocols: ["TLSv1.3"]
+  ssl.verification_mode: full
 setup.template.json.enabled: true
 setup.template.json.path: '/etc/filebeat/wazuh-template.json'
 setup.template.json.name: 'wazuh'
@@ -700,27 +665,31 @@ sudo apt install ./wazuh-dashboard
 
 edit in place :
 
+
+wazuh_dashboard_pfx_password='xyz'
+
 /etc/wazuh-dashboard/opensearch_dashboards.yml :
 
-server.host: wazuh-dashboard.internal
+server.host: '172.16.1.2'
+server.port: 443
 server.ssl.enabled: true
 server.ssl.supportedProtocols: ['TLSv1.3']
-server.ssl.certificate: /etc/wazuh-dashboard/certs/dashboard.pem
-server.ssl.key: /etc/wazuh-dashboard/certs/dashboard-key.pem
-opensearch.ssl.keyPassphrase: "${opensearch.ssl.keyPassphrase}"
-opensearch.ssl.verificationMode: full
-opensearch.ssl.certificateAuthorities: /etc/wazuh-dashboard/certs/root-ca.pem
-opensearch_security.cookie.secure: true
-server.port: 443
+server.ssl.cipherSuites: ['TLS_AES_128_GCM_SHA256']
+server.compression.enabled: true
+server.ssl.clientAuthentication: none
+server.ssl.keystore.path: /etc/wazuh-dashboard/certs/dashboard.pfx
+server.ssl.keystore.password: $wazuh_dashboard_pfx_password
 opensearch.hosts: ['https://wazuh-indexer.internal:443']
+opensearch.ssl.verificationMode: full
+opensearch.ssl.certificateAuthorities: ['/etc/wazuh-dashboard/certs/root-ca.pem']
+opensearch.ssl.alwaysPresentCertificate: false
+opensearch_security.cookie.secure: true
 opensearch.username: "kibanaserver"
 opensearch.password: "${opensearch.password}"
-
-wazuh_dashboard_private_key_password='abc'
-sudo --user wazuh-dashboard opensearch-dashboards-keystore add --force --stdin opensearch.ssl.keyPassphrase < <(printf '%s' "$wazuh_dashboard_private_key_password")
+data.search.usageTelemetry.enabled: false
 
 wazuh_indexer_user_kibanaserver_password='abc'
-sudo --user wazuh-dashboard opensearch-dashboards-keystore add --force --stdin opensearch.password < <(printf '%s' "$wazuh_indexer_user_kibanaserver_password")
+sudo --user wazuh-dashboard /usr/share/wazuh-dashboard/bin/opensearch-dashboards-keystore add --force --stdin opensearch.password < <(printf '%s' "$wazuh_indexer_user_kibanaserver_password")
 
 sudo --user wazuh-dashboard opensearch-dashboards-keystore list
 
@@ -740,17 +709,7 @@ sudo chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
 
 sudo mv /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml.bak
 
-
-
-
-
-
-
-
-
-
-
-( specify wazuh-wui password specified in wazuh manager setup )
+wazuh_server_wui_user_password='xyz'
 
 /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml :
 
@@ -759,7 +718,7 @@ hosts:
     url: https://wazuh-server.internal
     port: 55000
     username: wazuh-wui
-    password: wazuh-wui
+    password: $wazuh_server_wui_user_password
     run_as: true
 
 
@@ -1159,6 +1118,26 @@ plugins.security.ssl.http.truststore_filepath: certs/root-ca.pfx
 
 sudo --user wazuh-indexer /usr/share/wazuh-indexer/bin/opensearch-keystore add --force --stdin plugins.security.ssl.http.truststore_password_secure < <(printf '%s\n' "$wazuh_ca_bundle_password")
 
+Manager removed configs :
+
+  <indexer>
+    <enabled>yes</enabled>
+    <hosts>
+      <host>https://wazuh-indexer.local</host>
+    </hosts>
+    <username>admin</username>
+    <ssl>
+      <certificate_authorities>
+        <ca>/etc/filebeat/certs/root-ca.pem</ca>
+      </certificate_authorities>
+      <certificate></certificate>
+      <key></key>
+    </ssl>
+  </indexer>
+
+/var/ossec/bin/wazuh-keystore -f indexer -k password < <(printf '%s\n' "$wazuh_indexer_admin_user_password")
+
+
 filebeat removed configs :
 
 output.elasticsearch:
@@ -1180,3 +1159,13 @@ ssl.key_passphrase: "${output.elasticsearch.ssl.key_passphrase}"
 
 wazuh_server_filebeat_private_key_password='xyz'
 sudo filebeat keystore add --force --stdin output.elasticsearch.ssl.key_passphrase < <(echo "$wazuh_server_filebeat_private_key_password")
+
+dashboard removed configs :
+
+wazuh_dashboard_private_key_password='abc'
+sudo --user wazuh-dashboard opensearch-dashboards-keystore add --force --stdin opensearch.ssl.keyPassphrase < <(printf '%s' "$wazuh_dashboard_private_key_password")
+
+server.ssl.certificate: /etc/wazuh-dashboard/certs/dashboard.pem
+server.ssl.key: /etc/wazuh-dashboard/certs/dashboard-key.pem
+opensearch.ssl.keyPassphrase: "${opensearch.ssl.keyPassphrase}"
+
