@@ -96,7 +96,7 @@ stream {
 
 
 
-
+filebeat archives should be true when server logall is enabled 
 
 opensearch configuration notes :
 
@@ -274,6 +274,10 @@ auth_failure_listeners:
     allowed_tries: 3
     time_window_seconds: 60
     block_expiry_seconds: 300
+
+
+
+add maximum quota for ddos
 
 
 
@@ -497,20 +501,24 @@ systemctl status wazuh-manager
 https://documentation.wazuh.com/current/user-manual/api/configuration.html?utm_source=chatgpt.com
 
 
-/var/ossec/api/configuration/ssl/server.private.key.pem
-/var/ossec/api/configuration/ssl/server.certificate.pem
+chown -R wazuh:wazuh /var/ossec/api/configuration/ssl/
+/var/ossec/api/configuration/ssl/api.private.key.pem ( chmod 400 )
+/var/ossec/api/configuration/ssl/api.certificate.pem ( chmod 444 )
+
+wazuh_server_ip_address='172.16.1.2'
+wazuh_server_filebeat_root_ca_path='/etc/filebeat/certs/root-ca.pem'
+wazuh_server_api_url='https://$wazuh_server_ip_address/'
 
 
 /var/ossec/api/configuration/api.yaml :
 
-host: ['172.16.1.2']
+host: ['$wazuh_server_ip_address']
 port: 443
-drop_privileges: true
-experimental_features: false
+
 https:
   enabled: true
-  key: "server.private.key.pem"
-  cert: "server.certificate.pem"
+  key: "api.private.key.pem"
+  cert: "api.certificate.pem"
   use_ca: false
   ssl_protocol: TLSv1.3
   ssl_ciphers: TLS_AES_128_GCM_SHA256
@@ -523,57 +531,30 @@ access:
 
 sudo systemctl restart wazuh-manager
 
+wazuh_server_api_token=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert $wazuh_server_filebeat_root_ca_path --request POST --user wazuh:wazuh --url "${wazuh_server_api_url}security/user/authenticate?raw=true" )
 
+read -r -d '' wazuh_server_api_authorization_header <<-EOF
+	header = "Authorization: Bearer ${wazuh_server_api_token}"
+	header = "Content-Type: application/json"
+EOF
 
+curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert $wazuh_server_filebeat_root_ca_path --url "${wazuh_server_api_url}" --config <(printf '%s' "$wazuh_server_api_authorization_header")
 
-
-
-
-
-create a manager certificate for each manager api with below config :
-
-subjectAltName = DNS:server-1.internal
-extendedKeyUsage = serverAuth
-
-owner : wazuh , group : wazuh
-
-/var/ossec/api/configuration/ssl/api.pem ( chmod 444 )
-/var/ossec/api/configuration/ssl/api-key.pem ( chmod 400 )
-/var/ossec/api/configuration/ssl/root-ca.pem ( chmod 444 )
-
-sudo nano /var/ossec/api/configuration/api.yaml :
-
-https:
-  enabled: yes
-  key: "api.pem"
-  cert: "api-key.pem"
-  use_ca: true
-  ca: "root-ca.pem"
-
-sudo systemctl restart wazuh-manager
-
-curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem https://server-1.internal:55000/
-
-wazuh_server_api_token=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --request POST --user wazuh:wazuh --url "https://wazuh-server-1.internal:55000/security/user/authenticate?raw=true" )
 wazuh_server_api_user_wazuh_password='xyz'
 
-curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --request PUT --url "https://wazuh-server-1.internal:55000/security/users/1" --data-raw @<(jq --null-input --arg password "$wazuh_server_api_user_wazuh_password" '{password: $password}') --config <(cat <<-EOF
-  header = "Authorization: Bearer ${wazuh_server_api_token}"
-  header = "Content-Type: application/json"
-EOF
-)
+wazuh_server_api_user_wazuh_password_json_object=$(printf '%s' "$wazuh_server_api_user_wazuh_password" | jq --raw-input --null-input '{password: input}')
+
+curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert "$wazuh_server_filebeat_root_ca_path" --request PUT --url "${wazuh_server_api_url}security/users/1" --data-raw @- --config <(printf '%s' "$wazuh_server_api_authorization_header") < <(printf '%s' "$wazuh_server_api_user_wazuh_password_json_object")
 
 wazuh_server_api_user_wazuh_wui_password='xyz'
 
-curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --request PUT --url "https://wazuh-server-1.internal:55000/security/users/2" --data-raw @<(jq --null-input --arg password "$wazuh_server_api_user_wazuh_wui_password" '{password: $password}') --config <(cat <<-EOF
-  header = "Authorization: Bearer ${wazuh_server_api_token}"
-  header = "Content-Type: application/json"
-EOF
-)
+wazuh_server_api_user_wazuh_wui_password_json_object=$(printf '%s' "$wazuh_server_api_user_wazuh_wui_password" | jq --raw-input --null-input '{password: input}')
+
+curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert $wazuh_server_filebeat_root_ca_path --request PUT --url "${wazuh_server_api_url}security/users/2" --data-raw @- --config <(printf '%s' "$wazuh_server_api_authorization_header") < <(printf '%s' "$wazuh_server_api_user_wazuh_wui_password_json_object")
 
 
 
-filebeat archives should be true
+
 
 
 apt-get -y install ./filebeat
