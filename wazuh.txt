@@ -1,20 +1,33 @@
 
+
+Wazuh Recommended Hardware Specs :
+Indexer : 16 GB RAM , 8 vCPU
+manager : 4 GB RAM , 8 vCPU
+dashboard : 8 GB RAM , 4 vCPU
+
+
+https://documentation.wazuh.com/current/user-manual/index.html
+
+
+
+https://documentation.wazuh.com/current/installation-guide/packages-list.html
+
 Indexer :
-https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-indexer/wazuh-indexer_4.14.5-1_amd64.deb
+https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-indexer/wazuh-indexer_4.14.7-1_amd64.deb
 
 Manager :
-https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-manager/wazuh-manager_4.14.5-1_amd64.deb
+https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-manager/wazuh-manager_4.14.7-1_amd64.deb
 
 FileBeat :
 https://packages.wazuh.com/4.x/apt/pool/main/f/filebeat/filebeat_7.10.2-2_amd64.deb
 
 Dashboard :
-https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-dashboard/wazuh-dashboard_4.14.5-1_amd64.deb
+https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-dashboard/wazuh-dashboard_4.14.7-1_amd64.deb
 
 Alerts Template :
 https://raw.githubusercontent.com/wazuh/wazuh/v4.14.7/extensions/elasticsearch/7.x/wazuh-template.json
 
-wazuh 4.14.5
+wazuh 4.14.7
 java 21.0.10
 opensearch 2.19.5
 opensearch dashboards 2.19.5
@@ -107,6 +120,47 @@ block port 9300 on that ip using firewall
 only filebeat needs CA but specifying ssl certificate , key , ca config for transport and http is mandatory
 comment ( cluster.* ) directives from the file
 
+==========================================================================================================================================================================
+
+https://docs.fortinet.com/document/fortiweb/7.0.10/administration-guide/173192
+
+fortiweb :
+
+config log syslog-policy
+  edit "wazuh"
+    config syslog-server-list
+      edit 0
+        set port 6514
+        set server "172.16.1.2"
+        set tls enable
+      end
+  next
+end
+
+config log syslogd
+  set status enable
+  set facility local1
+  set policy "wazuh"
+end
+
+fortigate :
+
+config log syslogd setting
+  set certificate {string}
+  set enc-algorithm high
+  set facility local0
+  set format default
+  set mode reliable
+  set port 6514
+  set server 172.16.1.2
+  set source-ip {string}
+  set ssl-min-proto-version TLSv1-2
+  set status enable
+end
+
+
+
+
 ===================================================================================================================================================================================================
 
 Indexer Install :
@@ -119,6 +173,21 @@ sudo sed -i '/^pool/s/^/#/' /etc/chrony/chrony.conf
 printf 'server %s iburst\n' "$ntp_server" > /etc/chrony/conf.d/10-${ntp_server}.conf
 sudo systemctl restart chrony
 chronyc waitsync 10 0 0 1
+
+
+( ca must be in pem format and .crt extension )
+
+
+
+sudo apt install  ca-certificates
+sudo cp /usr/local/share/ca-certificates/wazuh-ca.crt
+sudo chmod 644 /usr/local/share/ca-certificates/wazuh-ca.crt
+sudo update-ca-certificates
+ls -l /etc/ssl/certs | grep wazuh-ca
+
+openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt server-certificate.crt
+
+
 
 
 
@@ -268,16 +337,21 @@ config:
         authentication_backend:
           type: internal
 auth_failure_listeners:
+  ip_rate_limiting:
+    type: ip
+    allowed_tries: 3
+    time_window_seconds: 60
+    block_expiry_seconds: 300
+    max_blocked_clients: 100000
+    max_tracked_clients: 100000
   internal_authentication_backend_limiting:
     type: username
     authentication_backend: internal
     allowed_tries: 3
     time_window_seconds: 60
     block_expiry_seconds: 300
-
-
-
-add maximum quota for ddos
+    max_blocked_clients: 100000
+    max_tracked_clients: 100000
 
 
 
@@ -332,11 +406,6 @@ wazuh_indexer_response=$(curl --fail --silent --show-error --location --compress
 
 is_jvm_memory_limit_applied=$(jq --raw-output '.nodes[].process.mlockall' < <(printf '%s' "$wazuh_indexer_response"))
 [[ $is_jvm_memory_limit_applied == true ]] || exit 1
-
-
-
-
-
 
 
 
@@ -538,8 +607,6 @@ read -r -d '' wazuh_server_api_authorization_header <<-EOF
 	header = "Content-Type: application/json"
 EOF
 
-curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert $wazuh_server_filebeat_root_ca_path --url "${wazuh_server_api_url}" --config <(printf '%s' "$wazuh_server_api_authorization_header")
-
 wazuh_server_api_user_wazuh_password='xyz'
 
 wazuh_server_api_user_wazuh_password_json_object=$(printf '%s' "$wazuh_server_api_user_wazuh_password" | jq --raw-input --null-input '{password: input}')
@@ -669,6 +736,7 @@ opensearch.username: "kibanaserver"
 opensearch.password: "${opensearch.password}"
 data.search.usageTelemetry.enabled: false
 
+
 wazuh_indexer_user_kibanaserver_password='abc'
 sudo --user wazuh-dashboard /usr/share/wazuh-dashboard/bin/opensearch-dashboards-keystore add --force --stdin opensearch.password < <(printf '%s' "$wazuh_indexer_user_kibanaserver_password")
 
@@ -688,19 +756,20 @@ sudo chmod 400 /etc/wazuh-dashboard/certs/dashboard-key.pem
 
 sudo chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
 
-sudo mv /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml.bak
+sudo systemctl restart wazuh-dashboard
 
-wazuh_server_wui_user_password='xyz'
+sudo mv /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml.bak
 
 /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml :
 
 hosts:
-  - default:
+  - manager-01:
     url: https://wazuh-server.internal
-    port: 55000
+    port: 443
     username: wazuh-wui
-    password: $wazuh_server_wui_user_password
+    password: $wazuh_server_api_user_wazuh_wui_password
     run_as: true
+    ca: /etc/wazuh-dashboard/certs/root-ca.pem
 
 
 sudo systemctl daemon-reload
@@ -710,6 +779,8 @@ sudo systemctl start wazuh-dashboard
 
 ☰ → Dashboard Management → Index Patterns : wazuh-archives-* -> time field : timestamp ( without @ )
 
+
+---------------------------------------------------
 
 
 =================================
