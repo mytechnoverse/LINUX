@@ -94,20 +94,9 @@ make -j$(nproc)
 strip --strip-all ./apps/openssl
 ldd ./apps/openssl
 
-Nginx Reverse Proxy :
-
-stream {
-  server {
-    listen 6514 ssl;
-    proxy_pass 127.0.0.1:514;
-    ssl_certificate /etc/nginx/certs/proxy.crt;
-    ssl_certificate_key /etc/nginx/certs/proxy.key;
-    ssl_protocols TLSv1.3;
-  }
-}
 
 
-
+=========================================================================================================================================================================
 
 filebeat archives should be true when server logall is enabled 
 
@@ -122,9 +111,90 @@ comment ( cluster.* ) directives from the file
 
 ==========================================================================================================================================================================
 
-https://docs.fortinet.com/document/fortiweb/7.0.10/administration-guide/173192
+Nginx Reverse Proxy :
+
+sudo apt install curl gnupg2 ca-certificates
+
+debian_version_name=$(. /etc/os-release && echo "$VERSION_CODENAME")
+
+apt_repo_url_nginx='https://nginx.org/keys/nginx_signing.key'
+apt_repo_key_nginx=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_url_nginx")
+read -r apt_repo_key_header < <(printf '%s\n' "$apt_repo_key_nginx")
+[[ "$apt_repo_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]] || exit 1
+gpg --output /etc/apt/keyrings/nginx-archive-keyring.gpg --dearmor <(printf '%s' "$apt_repo_key_nginx")
+sudo chown root:root /etc/apt/keyrings/nginx-archive-keyring.gpg
+sudo chmod 0644 /etc/apt/keyrings/nginx-archive-keyring.gpg
+read -r -d '' apt_repo_sources_nginx <<-EOF
+  Types: deb
+  URIs: https://nginx.org/packages/debian
+  Suites: $debian_version_name
+  Components: nginx
+  Signed-By: /etc/apt/keyrings/nginx-archive-keyring.gpg
+EOF
+
+printf '%s\n' "$apt_repo_sources_nginx" > /etc/apt/sources.list.d/nginx.sources
+sudo chown root:root /etc/apt/sources.list.d/nginx.sources
+sudo chmod 0644 /etc/apt/sources.list.d/nginx.sources
+
+
+
+
+
+
+read -r -d '' apt_repo_preferences_nginx <<-EOF
+  Package: nginx nginx-core nginx-common
+  Pin: release o=nginx
+  Pin-Priority: 900
+EOF
+
+printf '%s\n' "$apt_repo_preferences_nginx" > /etc/apt/preferences.d/nginx.pref
+sudo chown root:root /etc/apt/preferences.d/nginx.pref
+sudo chmod 0644 /etc/apt/preferences.d/nginx.pref
+
+
+
+
+
+
+add wazuh repository 4.x line the same way 
+
+
+
+
+
+
+
+apt-get --quiet=2 -o Acquire::Retries=0 -o Acquire::https::Timeout=3 --error-on=any update
+
+DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 -o Acquire::https::Timeout=3 --assume-yes install $package_name
+
+
+
+
+
+stream {
+  server {
+    listen 172.16.1.2:6514 ssl;
+    proxy_pass 127.0.0.1:514;
+    ssl_certificate /etc/nginx/certs/proxy.crt;
+    ssl_certificate_key /etc/nginx/certs/proxy.key;
+    ssl_verify_client off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_conf_command Ciphersuites TLS_AES_128_GCM_SHA256;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256;
+    ssl_ecdh_curve secp256r1;
+  }
+}
+
+openssl s_client -tls1_3 -connect 172.16.1.2:6514 -servername wazuh-manager-01.internal -CAfile /path/to/root-ca.pem -ciphersuites TLS_AES_128_GCM_SHA256
+openssl s_client -tls1_2 -connect 172.16.1.2:6514 -servername wazuh-manager-01.internal -CAfile /path/to/root-ca.pem -cipher ECDHE-ECDSA-AES128-GCM-SHA256
 
 fortiweb :
+
+( fortiweb CA verification and tls 1.3 needs version 8.x.x )
+( server can only be specifed by ip address in fortiweb )
+
+show log syslog-policy
 
 config log syslog-policy
   edit "wazuh"
@@ -137,6 +207,8 @@ config log syslog-policy
   next
 end
 
+show log syslogd
+
 config log syslogd
   set status enable
   set facility local1
@@ -145,18 +217,37 @@ end
 
 fortigate :
 
+( fortigate verifies CA but tls 1.3 is not supported )
+( specify syslog server with domain name and configure dns server in fortigate )
+
+import wazuh CA certificate as remote CA certificate in following path : ( System -> Certificates )
+
+show vpn certificate ca
+
+config vpn certificate ca
+  rename {} to wazuh_ca
+end
+
+config system dns
+  set primary 172.16.0.1
+  set secondary 172.16.0.2
+end
+
 config log syslogd setting
-  set certificate {string}
   set enc-algorithm high
   set facility local0
   set format default
   set mode reliable
   set port 6514
-  set server 172.16.1.2
-  set source-ip {string}
+  set server "wazuh-server-01.internal"
   set ssl-min-proto-version TLSv1-2
   set status enable
 end
+
+
+
+
+
 
 
 
