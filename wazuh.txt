@@ -6,6 +6,8 @@ manager : 4 GB RAM , 8 vCPU
 dashboard : 8 GB RAM , 4 vCPU
 
 
+
+
 https://documentation.wazuh.com/current/user-manual/index.html
 
 
@@ -34,8 +36,6 @@ opensearch dashboards 2.19.5
 filebeat 7.10.2
 openssl 3.5.6
 
-wazuh decodes logs in RFC 5424 format
-
 sha256 derived key is 32 Byte represented as 64 Hex characters
 
 opensearch jvm memory limit should be set to half of VM / Container RAM
@@ -58,6 +58,10 @@ indexer admin : filebeat admin
 indexer kibanaserver : dashboard kibanaserver
 manager wazuh-wui : dashboard wazuh-wui
 
+
+use ( su - ) for full $PATH
+
+
 jq :
 
 https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-amd64
@@ -68,7 +72,7 @@ https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64
 
 gawk :
 
-sudo apt install musl-tools build-essential xz-utils
+apt install musl-tools build-essential xz-utils
 
 https://ftp.gnu.org/gnu/gawk/gawk-5.4.1.tar.xz
 
@@ -84,7 +88,7 @@ openssl 4.x.x compilation :
 
 https://github.com/openssl/openssl/releases/download/openssl-4.0.1/openssl-4.0.1.tar.gz
 
-sudo apt install musl-tools build-essential perl libtext-template-perl
+apt install musl-tools build-essential perl libtext-template-perl
 export CC="musl-gcc"
 export CFLAGS="-O2"
 export LDFLAGS="-static"
@@ -111,62 +115,117 @@ comment ( cluster.* ) directives from the file
 
 ==========================================================================================================================================================================
 
-Nginx Reverse Proxy :
+====== Nginx Reverse Proxy :
 
-sudo apt install curl gnupg2 ca-certificates
+apt install curl gnupg2 ca-certificates
 
 debian_version_name=$(. /etc/os-release && echo "$VERSION_CODENAME")
 
-apt_repo_url_nginx='https://nginx.org/keys/nginx_signing.key'
-apt_repo_key_nginx=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_url_nginx")
-read -r apt_repo_key_header < <(printf '%s\n' "$apt_repo_key_nginx")
-[[ "$apt_repo_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]] || exit 1
-gpg --output /etc/apt/keyrings/nginx-archive-keyring.gpg --dearmor <(printf '%s' "$apt_repo_key_nginx")
-sudo chown root:root /etc/apt/keyrings/nginx-archive-keyring.gpg
-sudo chmod 0644 /etc/apt/keyrings/nginx-archive-keyring.gpg
-read -r -d '' apt_repo_sources_nginx <<-EOF
-  Types: deb
-  URIs: https://nginx.org/packages/debian
-  Suites: $debian_version_name
-  Components: nginx
-  Signed-By: /etc/apt/keyrings/nginx-archive-keyring.gpg
+apt_repo_name='nginx'
+apt_repo_public_key_url='https://nginx.org/keys/nginx_signing.key'
+apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
+apt_repo_url='https://nginx.org/packages/debian'
+apt_repo_suite=$debian_version_name
+apt_repo_component='nginx'
+apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
+
+apt_repo_public_key=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_public_key_url")
+read -r -d $'\n' apt_repo_public_key_header < <(printf '%s\n' "$apt_repo_public_key")
+[[ "$apt_repo_public_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]] || printf '%s\n' "error"
+
+gpg --output $apt_repo_public_key_path --dearmor <(printf '%s' "$apt_repo_public_key")
+chown root:root $apt_repo_public_key_path
+chmod 0644 $apt_repo_public_key_path
+read -r -d $'\x1c' apt_repo_sources <<-EOF
+	Types: deb
+	URIs: $apt_repo_url
+	Suites: $apt_repo_suite
+	Components: $apt_repo_component
+	Signed-By: $apt_repo_public_key_path
+$(printf '\x1c')
 EOF
 
-printf '%s\n' "$apt_repo_sources_nginx" > /etc/apt/sources.list.d/nginx.sources
-sudo chown root:root /etc/apt/sources.list.d/nginx.sources
-sudo chmod 0644 /etc/apt/sources.list.d/nginx.sources
+printf '%s\n' "$apt_repo_sources" > $apt_repo_sources_path
+chown root:root $apt_repo_sources_path
+chmod 0644 $apt_repo_sources_path
 
+apt_repo_preferences_path="/etc/apt/preferences.d/${apt_repo_name}.pref"
+apt_repo_packages_file_url="${apt_repo_url}/dists/${apt_repo_suite}/${apt_repo_component}/binary-amd64/Packages"
+apt_repo_packages_file=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_packages_file_url")
 
+declare -A packages_dictionary
+apt_repo_preferences_packages=''
 
+while read -r -d $'\n' this_line
+do
+	[[ $this_line =~ ^Package:[[:space:]](.*)$ ]] && {
+		package_name=${BASH_REMATCH[1]}
+		[[ -v packages_dictionary[$package_name] ]] || {
+			apt_repo_preferences_packages+="${package_name} "
+			packages_dictionary[$package_name]=''
+		}
+	}
+done < <(printf '%s\n' "$apt_repo_packages_file")
 
-
-
-read -r -d '' apt_repo_preferences_nginx <<-EOF
-  Package: nginx nginx-core nginx-common
-  Pin: release o=nginx
-  Pin-Priority: 900
+read -r -d $'\x1c' apt_repo_preferences <<-EOF
+	Package: $apt_repo_preferences_packages
+	Pin: release o=$apt_repo_name
+	Pin-Priority: 900
+$(printf '\x1c')
 EOF
 
-printf '%s\n' "$apt_repo_preferences_nginx" > /etc/apt/preferences.d/nginx.pref
-sudo chown root:root /etc/apt/preferences.d/nginx.pref
-sudo chmod 0644 /etc/apt/preferences.d/nginx.pref
+printf '%s\n' "$apt_repo_preferences" > $apt_repo_preferences_path
+chown root:root $apt_repo_preferences_path
+chmod 0644 $apt_repo_preferences_path
+
+
+
+
+
+apt install nginx
+
+====== Wazuh Repo :
+
+apt_repo_name='wazuh'
+apt_repo_public_key_url='https://packages.wazuh.com/key/GPG-KEY-WAZUH'
+apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
+apt_repo_url='https://packages.wazuh.com/4.x/apt/'
+apt_repo_suite='stable'
+apt_repo_component='main'
+apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
+
+apt_repo_public_key=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_public_key_url")
+read -r -d $'\n' apt_repo_public_key_header < <(printf '%s\n' "$apt_repo_public_key")
+[[ "$apt_repo_public_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]] || printf '%s\n' "error"
+
+gpg --output $apt_repo_public_key_path --dearmor <(printf '%s' "$apt_repo_public_key")
+chown root:root $apt_repo_public_key_path
+chmod 0644 $apt_repo_public_key_path
+read -r -d $'\x1c' apt_repo_sources <<-EOF
+	Types: deb
+	URIs: $apt_repo_url
+	Suites: $apt_repo_suite
+	Components: $apt_repo_component
+	Signed-By: $apt_repo_public_key_path
+$(printf '\x1c')
+EOF
+
+printf '%s\n' "$apt_repo_sources" > $apt_repo_sources_path
+chown root:root $apt_repo_sources_path
+chmod 0644 $apt_repo_sources_path
 
 
 
 
 
 
-add wazuh repository 4.x line the same way 
 
 
 
 
+apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
 
-
-
-apt-get --quiet=2 -o Acquire::Retries=0 -o Acquire::https::Timeout=3 --error-on=any update
-
-DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 -o Acquire::https::Timeout=3 --assume-yes install $package_name
+DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
 
 
 
@@ -256,24 +315,75 @@ end
 
 Indexer Install :
 
-sudo apt install chrony
-ntp_server='172.16.1.1'
-sudo timedatectl set-timezone Etc/UTC
-sudo timedatectl set-local-rtc 0
-sudo sed -i '/^pool/s/^/#/' /etc/chrony/chrony.conf
+
+
+
+
+
+ntp_server_domain='172.16.1.1' 
+
+
+
+read -r -d $'\n' ntp_server_ip _ < <(getent ahostsv4 $ntp_server_domain || printf '%s\n' "error")
+
+
+ping -c 3 -w 3 -q $ntp_server_ip || printf '%s\n' "error"
+
+
+
+[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || printf '%s\n' "package not installed"
+
+
+service_ntp_port='123'
+
+
+
+TCP Port Scan :
+
+timeout 3s bash -c "</dev/tcp/$ntp_server_ip/$service_ntp_port"
+
+
+
+
+
+
+
+
+
+package_name='chrony'
+package_service_name=$package_name
+
+apt install chrony
+timedatectl set-timezone Etc/UTC
+timedatectl set-local-rtc 0
+sed -i '/^pool/s/^/#/' /etc/chrony/chrony.conf
 printf 'server %s iburst\n' "$ntp_server" > /etc/chrony/conf.d/10-${ntp_server}.conf
-sudo systemctl restart chrony
-chronyc waitsync 10 0 0 1
+systemctl daemon-reload
+package_service_name="${package_service_name}.service"
+if systemctl is-running --quiet $package_service_name ; then systemctl restart $package_service_name || printf '%s\n' "error" ; else systemctl start $package_service_name || printf '%s\n' "error" ;
+systemctl is-enabled --quiet $package_service_name || systemctl enable --quiet $package_service_name
+chronyc waitsync 10 0 0 1 || printf '%s\n' "error"
+
+
+
+
+
+
+
+
+
+
+
 
 
 ( ca must be in pem format and .crt extension )
 
 
 
-sudo apt install  ca-certificates
-sudo cp /usr/local/share/ca-certificates/wazuh-ca.crt
-sudo chmod 644 /usr/local/share/ca-certificates/wazuh-ca.crt
-sudo update-ca-certificates
+apt install  ca-certificates
+cp /usr/local/share/ca-certificates/wazuh-ca.crt
+chmod 644 /usr/local/share/ca-certificates/wazuh-ca.crt
+update-ca-certificates
 ls -l /etc/ssl/certs | grep wazuh-ca
 
 openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt server-certificate.crt
@@ -282,8 +392,8 @@ openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt server-certificate.crt
 
 
 
-sudo apt install ./wazuh-indexer*.deb
-sudo apt install whois
+apt install ./wazuh-indexer*.deb
+apt install whois
 
 password='abc'
 
