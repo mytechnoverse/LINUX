@@ -59,7 +59,7 @@ indexer kibanaserver : dashboard kibanaserver
 manager wazuh-wui : dashboard wazuh-wui
 
 
-use ( su - ) for full $PATH
+use ( su --login ) to switch to root user
 
 
 jq :
@@ -119,7 +119,7 @@ comment ( cluster.* ) directives from the file
 
 apt install curl gnupg2 ca-certificates
 
-debian_version_name=$(. /etc/os-release && echo "$VERSION_CODENAME")
+debian_version_name=$(source /etc/os-release && echo "$VERSION_CODENAME")
 
 apt_repo_name='nginx'
 apt_repo_public_key_url='https://nginx.org/keys/nginx_signing.key'
@@ -179,10 +179,91 @@ chown root:root $apt_repo_preferences_path
 chmod 0644 $apt_repo_preferences_path
 
 
+package_name='nginx'
+
+[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
+  apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
+  DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
+}
+
+nginx_prefix='/etc/nginx/'
+nginx_main_config_file_path='/etc/nginx/nginx.conf'
 
 
 
-apt install nginx
+read -r -d $'\x1c' nginx_main_config_file_stream_block <<-EOF
+	stream {
+		include /etc/nginx/stream.d/*.conf;
+	}
+$(printf '\x1c')
+EOF
+
+printf '%s\n' "$nginx_main_config_file_stream_block" >> $nginx_main_config_file_path
+
+nginx_stream_config_files_prefix="${nginx_prefix}stream.d/"
+
+[[ -d $nginx_stream_config_files_prefix ]] || mkdir $nginx_stream_config_files_prefix
+[[ $(stat -c '%U %G' $nginx_stream_config_files_prefix) == "root root" ]] || chown root:root $nginx_stream_config_files_prefix
+[[ $(stat -c '%a' $nginx_stream_config_files_prefix) == 755 ]] || chmod 755 $nginx_stream_config_files_prefix
+
+nginx_service_name='syslog'
+nginx_service_stream_config_file_path="${nginx_stream_config_files_prefix}${nginx_service_name}.conf"
+
+[[ -f $nginx_service_stream_config_file_path ]] || touch $nginx_service_stream_config_file_path
+[[ $(stat -c '%U %G' $nginx_service_stream_config_file_path) == "root root" ]] || chown root:root $nginx_service_stream_config_file_path
+[[ $(stat -c '%a' $nginx_service_stream_config_file_path) == 644 ]] || chmod 644 $nginx_service_stream_config_file_path
+
+nginx_service_certs_prefix="${nginx_prefix}certs/${nginx_service_name}/"
+nginx_service_key_path="${nginx_service_certs_prefix}${nginx_service_name}.key"
+nginx_service_crt_path="${nginx_service_certs_prefix}${nginx_service_name}.crt"
+nginx_service_pass_path="${nginx_service_certs_prefix}${nginx_service_name}.pass"
+
+
+
+
+owner : root:root
+
+.pass , .key : 600
+.crt : 644 
+
+
+
+/etc/nginx/certs : 700
+/etc/nginx/certs/${nginx_service_name} : 700
+
+
+
+nginx_service_listen_ip='172.16.1.2'
+nginx_service_listen_port='6514'
+nginx_service_upstream_ip='127.0.0.1'
+nginx_service_upstream_port='514'
+
+nginx_service_listen_socket="${nginx_service_listen_ip}:${nginx_service_listen_port}"
+nginx_service_upstream_socket="${nginx_service_upstream_ip}:${nginx_service_upstream_port}"
+
+
+read -r -d $'\x1c' nginx_service_stream_config_file <<-EOF
+	server {
+		listen ${nginx_service_listen_socket} ssl;
+		proxy_pass ${nginx_service_upstream_socket};
+		ssl_certificate ${nginx_service_crt_path};
+		ssl_certificate_key ${nginx_service_key_path};
+		ssl_password_file ${nginx_service_pass_path};
+		ssl_verify_client off;
+		ssl_protocols TLSv1.2 TLSv1.3;
+		ssl_conf_command Ciphersuites TLS_AES_128_GCM_SHA256;
+		ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256;
+		ssl_ecdh_curve X25519:prime256v1;
+	}
+$(printf '\x1c')
+EOF
+
+printf '%s\n' "$nginx_service_stream_config_file" > $nginx_service_stream_config_file_path
+
+
+
+
+
 
 ====== Wazuh Repo :
 
@@ -232,18 +313,22 @@ DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-
 
 
 stream {
-  server {
-    listen 172.16.1.2:6514 ssl;
-    proxy_pass 127.0.0.1:514;
-    ssl_certificate /etc/nginx/certs/proxy.crt;
-    ssl_certificate_key /etc/nginx/certs/proxy.key;
-    ssl_verify_client off;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_conf_command Ciphersuites TLS_AES_128_GCM_SHA256;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256;
-    ssl_ecdh_curve secp256r1;
-  }
+
 }
+
+tls_server_ip=''
+tls_service_port=''
+tls_service_sni='wazuh-manager-01.internal'
+tls_certificate_san='wazuh-manager-01.internal'
+ca_bundle_path=''
+
+timeout 3s openssl s_client -4 -no-interactive -quiet -verify_return_error -connect $tls_server_ip:$tls_service_port -servername $tls_service_sni -verify_hostname $tls_certificate_san -verifyCAfile $ca_bundle_path -no_ign_eof </dev/null
+
+
+
+-tls1_2 -groups P-256 -sigalgs ECDSA+SHA256 -cipher ECDHE-ECDSA-AES128-GCM-SHA256
+-tls1_3 -groups P-256 -sigalgs ecdsa_secp256r1_sha256 -ciphersuites TLS_AES_128_GCM_SHA256
+
 
 openssl s_client -tls1_3 -connect 172.16.1.2:6514 -servername wazuh-manager-01.internal -CAfile /path/to/root-ca.pem -ciphersuites TLS_AES_128_GCM_SHA256
 openssl s_client -tls1_2 -connect 172.16.1.2:6514 -servername wazuh-manager-01.internal -CAfile /path/to/root-ca.pem -cipher ECDHE-ECDSA-AES128-GCM-SHA256
@@ -331,7 +416,7 @@ ping -c 3 -w 3 -q $ntp_server_ip || printf '%s\n' "error"
 
 
 
-[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || printf '%s\n' "package not installed"
+
 
 
 service_ntp_port='123'
