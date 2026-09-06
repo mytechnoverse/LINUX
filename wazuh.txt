@@ -121,12 +121,24 @@ apt install curl gnupg2 ca-certificates
 
 debian_version_name=$(source /etc/os-release && echo "$VERSION_CODENAME")
 
+package_name='nginx'
+
 apt_repo_name='nginx'
 apt_repo_public_key_url='https://nginx.org/keys/nginx_signing.key'
-apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
 apt_repo_url='https://nginx.org/packages/debian'
 apt_repo_suite=$debian_version_name
 apt_repo_component='nginx'
+
+nginx_service_name='syslog'
+nginx_service_listen_ip='172.16.1.2'
+nginx_service_listen_port='6514'
+nginx_service_upstream_ip='127.0.0.1'
+nginx_service_upstream_port='514'
+
+
+
+
+apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
 apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
 
 apt_repo_public_key=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_public_key_url")
@@ -179,8 +191,6 @@ chown root:root $apt_repo_preferences_path
 chmod 0644 $apt_repo_preferences_path
 
 
-package_name='nginx'
-
 [[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
   apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
   DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
@@ -189,16 +199,24 @@ package_name='nginx'
 nginx_prefix='/etc/nginx/'
 nginx_main_config_file_path='/etc/nginx/nginx.conf'
 
+nginx_directive_include_stream_present=false
+while read -r -d $'\n' this_line
+do
+	[[ $this_line =~ ^[[:space:]]*include[[:space:]]/etc/nginx/stream\.d/\*\.conf[[:space:]]*\;[[:space:]]*$ ]] && {
+    nginx_directive_include_stream_present=true
+    break
+  }
+done < $nginx_main_config_file_path
 
-
-read -r -d $'\x1c' nginx_main_config_file_stream_block <<-EOF
-	stream {
-		include /etc/nginx/stream.d/*.conf;
-	}
-$(printf '\x1c')
-EOF
-
-printf '%s\n' "$nginx_main_config_file_stream_block" >> $nginx_main_config_file_path
+[[ $nginx_directive_include_stream_present == true ]] || {
+  read -r -d $'\x1c' nginx_config_block_stream <<-EOF
+    stream {
+      include /etc/nginx/stream.d/*.conf;
+    }
+  $(printf '\x1c')
+  EOF
+  printf '%s\n' "$nginx_config_block_stream" >> $nginx_main_config_file_path
+} 
 
 nginx_stream_config_files_prefix="${nginx_prefix}stream.d/"
 
@@ -206,49 +224,52 @@ nginx_stream_config_files_prefix="${nginx_prefix}stream.d/"
 [[ $(stat -c '%U %G' $nginx_stream_config_files_prefix) == "root root" ]] || chown root:root $nginx_stream_config_files_prefix
 [[ $(stat -c '%a' $nginx_stream_config_files_prefix) == 755 ]] || chmod 755 $nginx_stream_config_files_prefix
 
-nginx_service_name='syslog'
+nginx_tls_prefix="${nginx_prefix}tls/"
+
+[[ -d $nginx_tls_prefix ]] || mkdir $nginx_tls_prefix
+[[ $(stat -c '%U %G' $nginx_tls_prefix) == "root root" ]] || chown root:root $nginx_tls_prefix
+[[ $(stat -c '%a' $nginx_tls_prefix) == 700 ]] || chmod 700 $nginx_tls_prefix
+
+nginx_service_tls_prefix="${nginx_tls_prefix}${nginx_service_name}/"
+
+[[ -d $nginx_service_tls_prefix ]] || mkdir $nginx_service_tls_prefix
+[[ $(stat -c '%U %G' $nginx_service_tls_prefix) == "root root" ]] || chown root:root $nginx_service_tls_prefix
+[[ $(stat -c '%a' $nginx_service_tls_prefix) == 700 ]] || chmod 700 $nginx_service_tls_prefix
+
+nginx_service_tls_crt_path="${nginx_service_tls_prefix}${nginx_service_name}.crt"
+
+[[ -f $nginx_service_tls_crt_path ]] || touch $nginx_service_tls_crt_path
+[[ $(stat -c '%U %G' $nginx_service_tls_crt_path) == "root root" ]] || chown root:root $nginx_service_tls_crt_path
+[[ $(stat -c '%a' $nginx_service_tls_crt_path) == 644 ]] || chmod 644 $nginx_service_tls_crt_path
+
+nginx_service_tls_key_path="${nginx_service_tls_prefix}${nginx_service_name}.key"
+
+[[ -f $nginx_service_tls_key_path ]] || touch $nginx_service_tls_key_path
+[[ $(stat -c '%U %G' $nginx_service_tls_key_path) == "root root" ]] || chown root:root $nginx_service_tls_key_path
+[[ $(stat -c '%a' $nginx_service_tls_key_path) == 600 ]] || chmod 600 $nginx_service_tls_key_path
+
+nginx_service_tls_pass_path="${nginx_service_tls_prefix}${nginx_service_name}.pass"
+
+[[ -f $nginx_service_tls_pass_path ]] || touch $nginx_service_tls_pass_path
+[[ $(stat -c '%U %G' $nginx_service_tls_pass_path) == "root root" ]] || chown root:root $nginx_service_tls_pass_path
+[[ $(stat -c '%a' $nginx_service_tls_pass_path) == 600 ]] || chmod 600 $nginx_service_tls_pass_path
+
 nginx_service_stream_config_file_path="${nginx_stream_config_files_prefix}${nginx_service_name}.conf"
 
 [[ -f $nginx_service_stream_config_file_path ]] || touch $nginx_service_stream_config_file_path
 [[ $(stat -c '%U %G' $nginx_service_stream_config_file_path) == "root root" ]] || chown root:root $nginx_service_stream_config_file_path
 [[ $(stat -c '%a' $nginx_service_stream_config_file_path) == 644 ]] || chmod 644 $nginx_service_stream_config_file_path
 
-nginx_service_certs_prefix="${nginx_prefix}certs/${nginx_service_name}/"
-nginx_service_key_path="${nginx_service_certs_prefix}${nginx_service_name}.key"
-nginx_service_crt_path="${nginx_service_certs_prefix}${nginx_service_name}.crt"
-nginx_service_pass_path="${nginx_service_certs_prefix}${nginx_service_name}.pass"
-
-
-
-
-owner : root:root
-
-.pass , .key : 600
-.crt : 644 
-
-
-
-/etc/nginx/certs : 700
-/etc/nginx/certs/${nginx_service_name} : 700
-
-
-
-nginx_service_listen_ip='172.16.1.2'
-nginx_service_listen_port='6514'
-nginx_service_upstream_ip='127.0.0.1'
-nginx_service_upstream_port='514'
-
 nginx_service_listen_socket="${nginx_service_listen_ip}:${nginx_service_listen_port}"
 nginx_service_upstream_socket="${nginx_service_upstream_ip}:${nginx_service_upstream_port}"
-
 
 read -r -d $'\x1c' nginx_service_stream_config_file <<-EOF
 	server {
 		listen ${nginx_service_listen_socket} ssl;
 		proxy_pass ${nginx_service_upstream_socket};
-		ssl_certificate ${nginx_service_crt_path};
-		ssl_certificate_key ${nginx_service_key_path};
-		ssl_password_file ${nginx_service_pass_path};
+		ssl_certificate ${nginx_service_tls_crt_path};
+		ssl_certificate_key ${nginx_service_tls_key_path};
+		ssl_password_file ${nginx_service_tls_pass_path};
 		ssl_verify_client off;
 		ssl_protocols TLSv1.2 TLSv1.3;
 		ssl_conf_command Ciphersuites TLS_AES_128_GCM_SHA256;
@@ -261,9 +282,15 @@ EOF
 printf '%s\n' "$nginx_service_stream_config_file" > $nginx_service_stream_config_file_path
 
 
+nginx -q -t 
 
 
 
+
+
+making checks like coming from outside for firewall checks
+
+making the source ip of syslog client visible to syslog server  
 
 ====== Wazuh Repo :
 

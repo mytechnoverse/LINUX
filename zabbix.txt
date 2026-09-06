@@ -21,18 +21,17 @@ switch_snmp_encryption_password='xyz'
 switch_snmp_authentication_algorithm={ 'SHA-256' | 'SHA' }
 switch_snmp_encryption_algorithm={ 'AES-256' | 'AES' }
 
-nmap -sU --ports 161 "$switch_snmp_ip_address"
-
-read -r -d '' snmp_walk_query <<-EOF
-timeout 5
-retries 1
-defVersion 3
-defSecurityLevel authPriv
-defSecurityName $switch_snmp_user_name
-defAuthType $switch_snmp_authentication_algorithm
-defAuthPassphrase $switch_snmp_authentication_password
-defPrivType $switch_snmp_encryption_algorithm
-defPrivPassphrase $switch_snmp_encryption_password
+read -r -d $'\x1c' snmp_walk_query <<-EOF
+	timeout 5
+	retries 1
+	defVersion 3
+	defSecurityLevel authPriv
+	defSecurityName $switch_snmp_user_name
+	defAuthType $switch_snmp_authentication_algorithm
+	defAuthPassphrase $switch_snmp_authentication_password
+	defPrivType $switch_snmp_encryption_algorithm
+	defPrivPassphrase $switch_snmp_encryption_password
+$(printf '\x1c')
 EOF
 
 snmpwalk --config-file=<(printf '%s\n' "$snmp_walk_query") "$switch_snmp_ip_address" .1
