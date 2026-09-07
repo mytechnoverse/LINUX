@@ -6,7 +6,7 @@ manager : 4 GB RAM , 8 vCPU
 dashboard : 8 GB RAM , 4 vCPU
 
 
-
+https://pro.shecan.ir/dns-query
 
 https://documentation.wazuh.com/current/user-manual/index.html
 
@@ -49,14 +49,15 @@ each wazuh manager needs at least 2 GB RAM
 Cisco Switches : syslog over TCP Port 514
 Fortiweb , Fortigate : syslog over TLS TCP Port 6514
 Windows : NXLOG | Fluent Bit | Solarwinds
-wazuh manager : nginx as tls terminator 6514 -> 514 
 
-PKCS12 supports encryption ( aes 256 cbc ) and integrity ( hmac sha256 )
-PKCS8 only supports encryption
+wazuh manager supports syslog over tcp
+nginx adds syslog over tls support ( tls tcp port 6514 -> tcp port 514 ) but could forward to only one syslog server
+rsyslog adds syslog over tls support ( tls tcp port 6514 -> tcp port 514 ) and also adds syslog routing to multiple syslog servers 
 
-indexer admin : filebeat admin
-indexer kibanaserver : dashboard kibanaserver
-manager wazuh-wui : dashboard wazuh-wui
+client --( syslog over tls over tcp )--> { rsyslog | nginx } --( syslog over tcp )--> wazuh
+
+PKCS8 only supports encryption only ( aes 256 cbc )
+PKCS12 supports encryption ( aes 256 cbc ) and integrity checking ( hmac sha256 )
 
 
 use ( su --login ) to switch to root user
@@ -117,6 +118,8 @@ comment ( cluster.* ) directives from the file
 
 ====== Nginx Reverse Proxy :
 
+add 127.0.0.1 to wazuh manager allowed ips if using nginx as tls termination solution for wazuh manager
+
 apt install curl gnupg2 ca-certificates
 
 debian_version_name=$(source /etc/os-release && echo "$VERSION_CODENAME")
@@ -135,9 +138,6 @@ nginx_service_listen_port='6514'
 nginx_service_upstream_ip='127.0.0.1'
 nginx_service_upstream_port='514'
 
-
-
-
 apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
 apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
 
@@ -147,7 +147,7 @@ read -r -d $'\n' apt_repo_public_key_header < <(printf '%s\n' "$apt_repo_public_
 
 gpg --output $apt_repo_public_key_path --dearmor <(printf '%s' "$apt_repo_public_key")
 chown root:root $apt_repo_public_key_path
-chmod 0644 $apt_repo_public_key_path
+chmod 644 $apt_repo_public_key_path
 read -r -d $'\x1c' apt_repo_sources <<-EOF
 	Types: deb
 	URIs: $apt_repo_url
@@ -159,7 +159,7 @@ EOF
 
 printf '%s\n' "$apt_repo_sources" > $apt_repo_sources_path
 chown root:root $apt_repo_sources_path
-chmod 0644 $apt_repo_sources_path
+chmod 644 $apt_repo_sources_path
 
 apt_repo_preferences_path="/etc/apt/preferences.d/${apt_repo_name}.pref"
 apt_repo_packages_file_url="${apt_repo_url}/dists/${apt_repo_suite}/${apt_repo_component}/binary-amd64/Packages"
@@ -188,7 +188,7 @@ EOF
 
 printf '%s\n' "$apt_repo_preferences" > $apt_repo_preferences_path
 chown root:root $apt_repo_preferences_path
-chmod 0644 $apt_repo_preferences_path
+chmod 644 $apt_repo_preferences_path
 
 
 [[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
@@ -281,16 +281,7 @@ EOF
 
 printf '%s\n' "$nginx_service_stream_config_file" > $nginx_service_stream_config_file_path
 
-
-nginx -q -t 
-
-
-
-
-
-making checks like coming from outside for firewall checks
-
-making the source ip of syslog client visible to syslog server  
+nginx -q -t || printf '%s\n' "error"
 
 ====== Wazuh Repo :
 
@@ -308,7 +299,7 @@ read -r -d $'\n' apt_repo_public_key_header < <(printf '%s\n' "$apt_repo_public_
 
 gpg --output $apt_repo_public_key_path --dearmor <(printf '%s' "$apt_repo_public_key")
 chown root:root $apt_repo_public_key_path
-chmod 0644 $apt_repo_public_key_path
+chmod 644 $apt_repo_public_key_path
 read -r -d $'\x1c' apt_repo_sources <<-EOF
 	Types: deb
 	URIs: $apt_repo_url
@@ -320,45 +311,27 @@ EOF
 
 printf '%s\n' "$apt_repo_sources" > $apt_repo_sources_path
 chown root:root $apt_repo_sources_path
-chmod 0644 $apt_repo_sources_path
+chmod 644 $apt_repo_sources_path
 
+package_name=''
 
-
-
-
-
-
-
-
-
-apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
-
-DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
-
-
-
-
-
-stream {
-
+[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
+  apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
+  DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
 }
 
-tls_server_ip=''
-tls_service_port=''
+tls_server_ip='172.16.1.2'
+tls_service_port='6514'
 tls_service_sni='wazuh-manager-01.internal'
 tls_certificate_san='wazuh-manager-01.internal'
 ca_bundle_path=''
 
-timeout 3s openssl s_client -4 -no-interactive -quiet -verify_return_error -connect $tls_server_ip:$tls_service_port -servername $tls_service_sni -verify_hostname $tls_certificate_san -verifyCAfile $ca_bundle_path -no_ign_eof </dev/null
+timeout 3s openssl s_client -4 -no-interactive -quiet -verify_return_error -connect $tls_server_ip:$tls_service_port -servername $tls_service_sni -verify_hostname $tls_certificate_san -verifyCAfile $ca_bundle_path -tls1_2 -no_ign_eof </dev/null
+timeout 3s openssl s_client -4 -no-interactive -quiet -verify_return_error -connect $tls_server_ip:$tls_service_port -servername $tls_service_sni -verify_hostname $tls_certificate_san -verifyCAfile $ca_bundle_path -tls1_3 -no_ign_eof </dev/null
 
 
-
--tls1_2 -groups P-256 -sigalgs ECDSA+SHA256 -cipher ECDHE-ECDSA-AES128-GCM-SHA256
--tls1_3 -groups P-256 -sigalgs ecdsa_secp256r1_sha256 -ciphersuites TLS_AES_128_GCM_SHA256
-
-
-openssl s_client -tls1_3 -connect 172.16.1.2:6514 -servername wazuh-manager-01.internal -CAfile /path/to/root-ca.pem -ciphersuites TLS_AES_128_GCM_SHA256
-openssl s_client -tls1_2 -connect 172.16.1.2:6514 -servername wazuh-manager-01.internal -CAfile /path/to/root-ca.pem -cipher ECDHE-ECDSA-AES128-GCM-SHA256
+( -tls1_2 -cipher ECDHE-ECDSA-AES128-GCM-SHA256 )
+( -tls1_3 -ciphersuites TLS_AES_128_GCM_SHA256 )
 
 fortiweb :
 
@@ -432,7 +405,7 @@ Indexer Install :
 
 
 
-ntp_server_domain='172.16.1.1' 
+ntp_server_domain='ntp.internal' 
 
 
 
@@ -444,15 +417,12 @@ ping -c 3 -w 3 -q $ntp_server_ip || printf '%s\n' "error"
 
 
 
-
-
-service_ntp_port='123'
-
-
-
 TCP Port Scan :
 
-timeout 3s bash -c "</dev/tcp/$ntp_server_ip/$service_ntp_port"
+target_server_ip=''
+target_service_port=''
+
+timeout 3s bash -c "</dev/tcp/$target_server_ip/$target_service_port"
 
 
 
@@ -466,7 +436,10 @@ package_name='chrony'
 package_service_name=$package_name
 
 apt install chrony
-timedatectl set-timezone Etc/UTC
+
+current_timezone=$(timedatectl show --property=Timezone --value)
+[[ $current_timezone == 'Etc/UTC' ]] || timedatectl set-timezone Etc/UTC
+
 timedatectl set-local-rtc 0
 sed -i '/^pool/s/^/#/' /etc/chrony/chrony.conf
 printf 'server %s iburst\n' "$ntp_server" > /etc/chrony/conf.d/10-${ntp_server}.conf
