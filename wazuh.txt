@@ -6,6 +6,38 @@ manager : 4 GB RAM , 8 vCPU
 dashboard : 8 GB RAM , 4 vCPU
 
 
+ubuntu at least 64 GB :
+
+lvextend -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv
+resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv
+
+https://packages.wazuh.com/4.14/wazuh-install.sh
+bash ./wazuh-install.sh -a
+
+sudo /var/ossec/bin/wazuh-control info
+
+nano /var/ossec/etc/ossec.conf :
+
+<logall>yes</logall>
+<logall_json>yes</logall_json>
+
+<remote>
+  <connection>syslog</connection>
+  <port>514</port>
+  <protocol>tcp</protocol>
+  <allowed-ips>0.0.0.0/0</allowed-ips>
+</remote>
+
+sudo systemctl restart wazuh-manager
+
+ufw allow 514/tcp
+
+sudo ss -tlnp | grep 514
+
+logger -n <wazuh-server-ip> -P 514 -T "test syslog message from client"
+
+script on Debian ( software-properties-common ) error : apt -y install python3-apt tar
+
 https://pro.shecan.ir/dns-query
 
 https://documentation.wazuh.com/current/user-manual/index.html
