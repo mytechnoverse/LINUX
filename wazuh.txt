@@ -214,14 +214,14 @@ openssl 4.x.x compilation :
 https://github.com/openssl/openssl/releases/download/openssl-4.0.1/openssl-4.0.1.tar.gz
 
 apt install musl-tools build-essential perl libtext-template-perl
-export CC="musl-gcc"
-export CFLAGS="-O2"
-export LDFLAGS="-static"
-export CPPFLAGS="-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu"
-./Configure no-shared no-module no-async no-dso linux-x86_64
+CC=musl-gcc CFLAGS=-O2 LDFLAGS=-static ./Configure linux-x86_64 no-shared no-module no-async no-dso 
+
+CPPFLAGS='-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu'
+
 make -j$(nproc)
 strip --strip-all ./apps/openssl
 ldd ./apps/openssl
+
 
 
 
@@ -256,11 +256,7 @@ apt_repo_url='https://nginx.org/packages/debian'
 apt_repo_suite=$debian_version_name
 apt_repo_component='nginx'
 
-nginx_service_name='syslog'
-nginx_service_listen_ip='172.16.1.2'
-nginx_service_listen_port='6514'
-nginx_service_upstream_ip='127.0.0.1'
-nginx_service_upstream_port='514'
+
 
 apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
 apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
@@ -354,6 +350,12 @@ nginx_tls_prefix="${nginx_prefix}tls/"
 [[ $(stat -c '%U %G' $nginx_tls_prefix) == "root root" ]] || chown root:root $nginx_tls_prefix
 [[ $(stat -c '%a' $nginx_tls_prefix) == 700 ]] || chmod 700 $nginx_tls_prefix
 
+nginx_service_name='syslog'
+nginx_service_listen_ip='172.16.1.2'
+nginx_service_listen_port='6514'
+nginx_service_upstream_ip='127.0.0.1'
+nginx_service_upstream_port='514'
+
 nginx_service_tls_prefix="${nginx_tls_prefix}${nginx_service_name}/"
 
 [[ -d $nginx_service_tls_prefix ]] || mkdir $nginx_service_tls_prefix
@@ -404,8 +406,6 @@ $(printf '\x1c')
 EOF
 
 printf '%s\n' "$nginx_service_stream_config_file" > $nginx_service_stream_config_file_path
-
-nginx -q -t || printf '%s\n' "error"
 
 ====== Wazuh Repo :
 
@@ -608,13 +608,11 @@ password='abc'
 
 wazuh_indexer_admin_user_password=$(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:admin") HMAC)
 wazuh_indexer_admin_user_hash=$(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_admin_user_password"))
-# export wazuh_indexer_admin_user_hash
-sudo --preserve-env --user wazuh-indexer yq -i '.admin.hash = strenv(wazuh_indexer_admin_user_hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
+yq -i '.admin.hash = strenv(wazuh_indexer_admin_user_hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
 
 wazuh_indexer_kibana_user_password=$(openssl mac -digest sha256 -macopt keyfile:<(printf '%s' "$password") -in <(printf '%s' "wazuh:kibanaserver") HMAC)
 wazuh_indexer_kibana_user_hash=$(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_kibana_user_password"))
-# export wazuh_indexer_kibana_user_hash
-sudo --preserve-env --user wazuh-indexer yq -i '.kibanaserver.hash = strenv(wazuh_indexer_kibana_user_hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
+yq -i '.kibanaserver.hash = strenv(wazuh_indexer_kibana_user_hash)' /etc/wazuh-indexer/opensearch-security/internal_users.yml
 
 
 
@@ -980,6 +978,24 @@ systemctl status wazuh-manager
 https://documentation.wazuh.com/current/user-manual/api/configuration.html?utm_source=chatgpt.com
 
 
+
+use nginx as reverse proxy for wazuh manager api :
+
+/var/ossec/api/configuration/api.yaml :
+
+host: ['$wazuh_server_ip_address']
+port: 443
+
+https:
+  enabled: no
+
+access:
+  max_login_attempts: 3
+  block_time: 300
+
+
+
+
 chown -R wazuh:wazuh /var/ossec/api/configuration/ssl/
 /var/ossec/api/configuration/ssl/api.private.key.pem ( chmod 400 )
 /var/ossec/api/configuration/ssl/api.certificate.pem ( chmod 444 )
@@ -1261,46 +1277,28 @@ openssl x509 -req -sha256 -in dashboard.csr -CA rootCA.pem -CAkey rootCA.key \
 ---------------------------------------------------------------------------------------
 
 
-declare first_line
-declare file_path
-get_first_line() {
-  declare -n first_line_ref=$1
-  declare file_path=$2
-  read -r first_line_ref < $file_path
-}
 
-is_file_encoding_pem() {
-  [[ "$first_line" =~ ^-----BEGIN[[:space:]].*-----$ ]]
-}
-
-is_file_certificate() {
+is_file_pem_crt() {
   [[ "$first_line" =~ ^-----BEGIN[[:space:]]CERTIFICATE-----$ ]] && openssl x509 -noout -in $file_path
 }
 
-is_file_cerificate_request() {
+is_file_pem_csr() {
   [[ "$first_line" =~ ^-----BEGIN[[:space:]]CERTIFICATE[[:space:]]REQUEST-----$ ]] && openssl req -noout -in $file_path
 }
 
-is_file_format_pkcs8() {
-  [[ "$first_line" =~ ^-----BEGIN[[:space:]](ENCRYPTED[[:space:]]+)?PRIVATE[[:space:]]KEY-----$ ]]
+is_file_pem_key() {
+  [[ "$first_line" =~ ^-----BEGIN[[:space:]]PRIVATE[[:space:]]KEY-----$ ]] && openssl pkey -noout -in $file_path
 }
 
-is_private_key_encrypted() {
-  [[ "$first_line" =~ ^-----BEGIN[[:space:]]ENCRYPTED[[:space:]]PRIVATE[[:space:]]KEY-----$ ]]
+is_file_pem_key_enc() {
+  [[ "$first_line" =~ ^-----BEGIN[[:space:]]ENCRYPTED[[:space:]]PRIVATE[[:space:]]KEY-----$ ]] && openssl pkey -noout -in $file_path -check -passin file:<(printf '%s\n' "$password")
 }
 
-is_file_private_key() {
-  is_file_format_pkcs8
-  if is_private_key_encrypted $file_path
-  then
-    openssl pkey -noout -in $file_path -check -passin file:<(printf '%s\n' "$password") || return 1
-  else
-    openssl pkey -noout -in $file_path || return 1
-  fi
-}
+pfx or pem , then
+$(file -E --brief --mime-type $file_path)
 
-///////////////////////////////////////////////////////////////////////////////////////
 
+openssl pkcs12 -noout -in $file_path -passin file:<(printf '%s\n' "$password")
 
 --- Generating Private Key : ( PKCS8 , No Private Key Encyption , No Authentication )
 

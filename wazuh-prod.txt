@@ -1,0 +1,267 @@
+
+wazuh-indexer : pkcs12
+
+wazuh-admin : pkcs 12
+
+wazuh-manager : pkcs8 encrypted nginx
+
+wazuh-dashboard : pkcs12
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+https://github.com/openssl/openssl/releases/download/openssl-4.0.2/openssl-4.0.2.tar.gz
+
+apt install curl ca-certificates
+apt install musl-tools build-essential perl libtext-template-perl linux-libc-dev
+CC=musl-gcc CFLAGS=-O2 LDFLAGS=-static CPPFLAGS='-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu' ./Configure linux-x86_64 no-shared no-module no-async no-dso 
+make -j$(nproc) || echo error
+strip --strip-all ./apps/openssl
+
+apt install whois
+
+password='xyz'
+
+wazuh_indexer_users_file_path='/etc/wazuh-indexer/opensearch-security/internal_users.yml'
+wazuh_indexer_users_file="$(<$wazuh_indexer_users_file_path)"
+readarray -t -d $'\n' wazuh_indexer_users < <(yq eval '. | keys | .[] | select(. != "_meta")' - < <(printf '%s\n' "$wazuh_indexer_users_file"))
+
+for wazuh_indexer_user in "${wazuh_indexer_users[@]}"
+do
+    wazuh_indexer_user_password=$(openssl mac -digest sha256 -macopt keyfile:<(printf '%s\n' "$password") -in <(printf '%s' "wazuh:${wazuh_indexer_user}") HMAC)
+    wazuh_indexer_user_password_hash=$(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_user_password"))
+    yq_query_password_change=".${wazuh_indexer_user}.hash = strenv(wazuh_indexer_user_password_hash)"
+    wazuh_indexer_users_file=$(yq -i "$yq_query_password_change" < <(printf '%s\n' "$wazuh_indexer_users_file"))
+done
+
+printf '%s\n' "$wazuh_indexer_users_file" > $wazuh_indexer_users_file_path
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+apt install curl ca-certificates gnupg2
+
+debian_version_name=$(source /etc/os-release && echo "$VERSION_CODENAME")
+
+package_name='nginx'
+
+apt_repo_name='nginx'
+apt_repo_public_key_url='https://nginx.org/keys/nginx_signing.key'
+apt_repo_url='https://nginx.org/packages/debian'
+apt_repo_suite=$debian_version_name
+apt_repo_component='nginx'
+
+apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
+apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
+
+apt_repo_public_key=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_public_key_url")
+read -r -d $'\n' apt_repo_public_key_header < <(printf '%s\n' "$apt_repo_public_key")
+[[ "$apt_repo_public_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]] || printf '%s\n' "error"
+
+gpg --output $apt_repo_public_key_path --dearmor <(printf '%s' "$apt_repo_public_key")
+chown root:root $apt_repo_public_key_path
+chmod 644 $apt_repo_public_key_path
+read -r -d $'\x1c' apt_repo_sources <<-EOF
+	Types: deb
+	URIs: $apt_repo_url
+	Suites: $apt_repo_suite
+	Components: $apt_repo_component
+	Signed-By: $apt_repo_public_key_path
+$(printf '\x1c')
+EOF
+
+printf '%s\n' "$apt_repo_sources" > $apt_repo_sources_path
+chown root:root $apt_repo_sources_path
+chmod 644 $apt_repo_sources_path
+
+apt_repo_preferences_path="/etc/apt/preferences.d/${apt_repo_name}.pref"
+apt_repo_packages_file_url="${apt_repo_url}/dists/${apt_repo_suite}/${apt_repo_component}/binary-amd64/Packages"
+apt_repo_packages_file=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_packages_file_url")
+
+declare -A packages_dictionary
+apt_repo_preferences_packages=''
+
+while read -r -d $'\n' this_line
+do
+	[[ $this_line =~ ^Package:[[:space:]](.*)$ ]] && {
+		package_name=${BASH_REMATCH[1]}
+		[[ -v packages_dictionary[$package_name] ]] || {
+			apt_repo_preferences_packages+="${package_name} "
+			packages_dictionary[$package_name]=''
+		}
+	}
+done < <(printf '%s\n' "$apt_repo_packages_file")
+
+read -r -d $'\x1c' apt_repo_preferences <<-EOF
+	Package: $apt_repo_preferences_packages
+	Pin: release o=$apt_repo_name
+	Pin-Priority: 900
+$(printf '\x1c')
+EOF
+
+printf '%s\n' "$apt_repo_preferences" > $apt_repo_preferences_path
+chown root:root $apt_repo_preferences_path
+chmod 644 $apt_repo_preferences_path
+
+
+[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
+  apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
+  DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
+}
+
+nginx_prefix='/etc/nginx/'
+
+nginx_tls_prefix="${nginx_prefix}tls/"
+
+[[ -d $nginx_tls_prefix ]] || mkdir $nginx_tls_prefix
+[[ $(stat -c '%U %G' $nginx_tls_prefix) == "root root" ]] || chown root:root $nginx_tls_prefix
+[[ $(stat -c '%a' $nginx_tls_prefix) == 700 ]] || chmod 700 $nginx_tls_prefix
+
+nginx_service_name='xyz.com'
+
+nginx_service_tls_prefix="${nginx_tls_prefix}${nginx_service_name}/"
+
+[[ -d $nginx_service_tls_prefix ]] || mkdir $nginx_service_tls_prefix
+[[ $(stat -c '%U %G' $nginx_service_tls_prefix) == "root root" ]] || chown root:root $nginx_service_tls_prefix
+[[ $(stat -c '%a' $nginx_service_tls_prefix) == 700 ]] || chmod 700 $nginx_service_tls_prefix
+
+nginx_service_tls_key_path="${nginx_service_tls_prefix}${nginx_service_name}.key"
+
+[[ -f $nginx_service_tls_key_path ]] || touch $nginx_service_tls_key_path
+[[ $(stat -c '%U %G' $nginx_service_tls_key_path) == "root root" ]] || chown root:root $nginx_service_tls_key_path
+[[ $(stat -c '%a' $nginx_service_tls_key_path) == 600 ]] || chmod 600 $nginx_service_tls_key_path
+
+nginx_service_tls_pass_file=$(openssl rand -hex 32)
+
+nginx_service_tls_key=$(openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256 -saltlen 16 -iter 1000000 -in <(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256) -passout file:<(printf '%s\n' "$nginx_service_tls_pass_file"))
+
+printf '%s\n' "$nginx_service_tls_key" > $nginx_service_tls_key_path
+
+[[ -f /var/lib/systemd/credential.secret ]] || systemd-creds setup
+
+nginx_systemd_config_files_prefix='/etc/systemd/system/nginx.service.d/'
+
+[[ -d $nginx_systemd_config_files_prefix ]] || mkdir -p $nginx_systemd_config_files_prefix
+[[ $(stat -c '%U %G' $nginx_systemd_config_files_prefix) == "root root" ]] || chown root:root $nginx_systemd_config_files_prefix
+[[ $(stat -c '%a' $nginx_systemd_config_files_prefix) == 755 ]] || chmod 755 $nginx_systemd_config_files_prefix
+
+nginx_service_tls_cred_file=$(systemd-creds encrypt --name=$nginx_service_name - - < <(printf '%s' "$nginx_service_tls_pass_file"))
+nginx_service_tls_cred_file_path="${nginx_service_tls_prefix}${nginx_service_name}.cred"
+
+[[ -f $nginx_service_tls_cred_file_path ]] || touch $nginx_service_tls_cred_file_path
+[[ $(stat -c '%U %G' $nginx_service_tls_cred_file_path) == "root root" ]] || chown root:root $nginx_service_tls_cred_file_path
+[[ $(stat -c '%a' $nginx_service_tls_cred_file_path) == 600 ]] || chmod 600 $nginx_service_tls_cred_file_path
+
+read -r -d $'\x1c' nginx_service_systemd_config_file <<-EOF
+    [Service]
+    LoadCredentialEncrypted=${nginx_service_name}:${nginx_service_tls_cred_file_path}
+$(printf '\x1c')
+EOF
+
+nginx_service_systemd_config_file_path="${nginx_systemd_config_files_prefix}${nginx_service_name}.conf"
+
+[[ -f $nginx_service_systemd_config_file_path ]] || touch $nginx_service_systemd_config_file_path
+[[ $(stat -c '%U %G' $nginx_service_systemd_config_file_path) == "root root" ]] || chown root:root $nginx_service_systemd_config_file_path
+[[ $(stat -c '%a' $nginx_service_systemd_config_file_path) == 644 ]] || chmod 644 $nginx_service_systemd_config_file_path
+
+printf '%s\n' "$nginx_service_systemd_config_file" > $nginx_service_systemd_config_file_path
+
+nginx_http_config_files_prefix='/etc/nginx/conf.d/'
+
+nginx_service_http_config_file_path="${nginx_http_config_files_prefix}${nginx_service_name}.conf"
+
+[[ -f $nginx_service_http_config_file_path ]] || touch $nginx_service_http_config_file_path
+[[ $(stat -c '%U %G' $nginx_service_http_config_file_path) == "root root" ]] || chown root:root $nginx_service_http_config_file_path
+[[ $(stat -c '%a' $nginx_service_http_config_file_path) == 644 ]] || chmod 644 $nginx_service_http_config_file_path
+
+nginx_service_tls_crt_path="${nginx_service_tls_prefix}${nginx_service_name}.crt"
+
+[[ -f $nginx_service_tls_crt_path ]] || touch $nginx_service_tls_crt_path
+[[ $(stat -c '%U %G' $nginx_service_tls_crt_path) == "root root" ]] || chown root:root $nginx_service_tls_crt_path
+[[ $(stat -c '%a' $nginx_service_tls_crt_path) == 644 ]] || chmod 644 $nginx_service_tls_crt_path
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+wazuh_server_api_port_external='55000'
+wazuh_server_api_port_internal='55000'
+
+
+read -r -d $'\x1c' nginx_service_http_config_file <<-EOF
+    server {
+        listen ${wazuh_server_api_port_external} ssl;
+        server_name ${nginx_service_name};
+        ssl_certificate ${nginx_service_tls_crt_path};
+        ssl_certificate_key ${nginx_service_tls_key_path};
+        ssl_password_file /run/credentials/nginx.service/${nginx_service_name};
+        proxy_pass http://127.0.0.1:${wazuh_server_api_port_internal};
+        ssl_verify_client off;
+        ssl_protocols TLSv1.3;
+        ssl_conf_command Ciphersuites TLS_AES_128_GCM_SHA256;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    server {
+        listen 80;
+        server_name ${nginx_service_name};
+        return 301 https://\$host\$request_uri;
+    }
+$(printf '\x1c')
+EOF
+
+printf '%s\n' "$nginx_service_http_config_file" > $nginx_service_http_config_file_path
+
+systemctl daemon-reload
+
+systemctl restart nginx
+
+
+
+
+
+
+
+
+
+
+
+
+
+==========================================================================================================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
