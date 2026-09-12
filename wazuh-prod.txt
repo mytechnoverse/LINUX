@@ -7,17 +7,158 @@ wazuh-manager : pkcs8 encrypted nginx
 
 wazuh-dashboard : pkcs12
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+printf '%s\n' "error"
 
-https://github.com/openssl/openssl/releases/download/openssl-4.0.2/openssl-4.0.2.tar.gz
+#######################################################################################################################################################
 
-apt install curl ca-certificates
-apt install musl-tools build-essential perl libtext-template-perl linux-libc-dev
-CC=musl-gcc CFLAGS=-O2 LDFLAGS=-static CPPFLAGS='-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu' ./Configure linux-x86_64 no-shared no-module no-async no-dso 
-make -j$(nproc) || echo error
-strip --strip-all ./apps/openssl
+### openssl 4 install :
+
+[[ -v apt_is_package_index_updated ]] || apt_is_package_index_updated=0
+
+application_name='openssl'
+application_version_min='4.0.0'
+application_binary='openssl'
+source_package_url='https://github.com/openssl/openssl/releases/download/openssl-4.0.2/openssl-4.0.2.tar.gz'
+source_package_build_dependencies=(curl ca-certificates tar musl-tools build-essential perl libtext-template-perl)
+source_package_cpp_flags='-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu'
+source_package_configure_options=(--prefix=/nonexistent --openssldir=/nonexistent linux-x86_64 no-shared no-module no-async no-dso -static)
+source_package_compile_prefix='apps/'
+package_name='openssl'
+[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
+    (( apt_is_package_index_updated )) || {
+        apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
+        apt_is_package_index_updated=1
+    }
+    DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
+}
+
+readarray -t -d '.' application_version_min_list < <(printf '%s' $application_version_min)
+read -r -d $'\n' _ application_version_system _ < <($application_binary --version)
+readarray -t -d '.' application_version_system_list < <(printf '%s' $application_version_system)
+application_version_min_is_satisfied=1
+for version_index in "${!application_version_min_list[@]}"
+do
+    (( application_version_system_list[$version_index] > application_version_min_list[$version_index] )) && break
+    (( application_version_system_list[$version_index] < application_version_min_list[$version_index] )) && {
+        application_version_min_is_satisfied=0
+        break
+    }
+done
+(( application_version_min_is_satisfied )) && printf '%s\n' "openssl already installed"
+application_binary_local="local-${application_binary}"
+command -v $application_binary_local >/dev/null && {
+    read -r -d $'\n' _ application_version_local _ < <($application_binary_local --version)
+    readarray -t -d '.' application_version_local_list < <(printf '%s' $application_version_local)
+    application_version_min_is_satisfied=1
+    for version_index in "${!application_version_min_list[@]}"
+    do
+        (( application_version_local_list[$version_index] > application_version_min_list[$version_index] )) && break
+        (( application_version_local_list[$version_index] < application_version_min_list[$version_index] )) && {
+            application_version_min_is_satisfied=0
+            break
+        }
+    done
+}
+(( application_version_min_is_satisfied )) && printf '%s\n' "openssl already installed"
+for package_name in "${source_package_build_dependencies[@]}"
+do
+    [[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
+        DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
+    }
+done
+source_package_build_path="$(mktemp -d)/"
+source_package_path="${source_package_build_path}${application_name}.tar"
+curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --url $source_package_url --output $source_package_path || printf '%s\n' "error"
+tar --extract --strip-components=1 --directory $source_package_build_path --file $source_package_path
+source_package_configure_path="${source_package_build_path}Configure"
+CC=musl-gcc CFLAGS=-O2 LDFLAGS=-static CPPFLAGS="$source_package_cpp_flags" $source_package_configure_path "${source_package_configure_options[@]}" >/dev/null || printf '%s\n' "error"
+cpu_core_count=$(nproc)
+make --jobs $cpu_core_count >/dev/null || printf '%s\n' "error"
+source_package_compile_path="${source_package_build_path}${source_package_compile_prefix}${application_binary}"
+strip --strip-all $source_package_compile_path
+application_binary_local_path="/usr/local/bin/${application_binary_local}"
+[[ -f $application_binary_local_path ]] && rm $application_binary_local_path
+cp $source_package_compile_path $application_binary_local_path
+[[ $(stat -c '%U %G' $application_binary_local_path) == "root root" ]] || chown root:root $application_binary_local_path
+[[ $(stat -c '%a' $application_binary_local_path) == 755 ]] || chmod 755 $application_binary_local_path
+rm --recursive $source_package_build_path
+
+#######################################################################################################################################################
+
+### yq go install :
+
+[[ -v apt_is_package_index_updated ]] || apt_is_package_index_updated=0
+[[ -v debian_version_name ]] || debian_version_name=$(source /etc/os-release && echo "$VERSION_CODENAME")
+
+package_name='yq-go'
+apt_repo_name='debian-backports'
+apt_repo_url='http://deb.debian.org/debian/'
+apt_repo_suite="${debian_version_name}-backports"
+apt_repo_component='main'
+apt_repo_origin='Debian'
+
+[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] && printf '%s\n' "yq-go already installed"
+(( apt_is_package_index_updated )) || {
+    apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
+}
+apt_repo_parameters="${apt_repo_url} ${apt_repo_suite} ${apt_repo_component}"
+readarray -t apt_sources_parameters_list < <(apt-get indextargets --format '$(REPO_URI) $(SUITE) $(COMPONENT)' "Created-By: Packages")
+apt_repo_is_already_configured=0
+for apt_source_parameter in "${apt_sources_parameters_list[@]}"
+do
+    [[ "$apt_repo_parameters" == "$apt_source_parameter" ]] && {
+        apt_repo_is_already_configured=1
+        break
+    }
+done
+(( apt_repo_is_already_configured )) && {
+    DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
+    printf '%s\n' "yq-go installed"
+}
+package_name='debian-archive-keyring'
+[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
+    DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
+}
+package_name='yq-go'
+apt_repo_public_key_path='/usr/share/keyrings/debian-archive-keyring.pgp'
+apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
+read -r -d $'\x1c' apt_repo_sources <<-EOF
+	Types: deb
+	URIs: $apt_repo_url
+	Suites: $apt_repo_suite
+	Components: $apt_repo_component
+	Signed-By: $apt_repo_public_key_path
+$(printf '\x1c')
+EOF
+[[ -f $apt_repo_sources_path ]] || touch $apt_repo_sources_path
+[[ $(stat -c '%U %G' $apt_repo_sources_path) == "root root" ]] || chown root:root $apt_repo_sources_path
+[[ $(stat -c '%a' $apt_repo_sources_path) == 644 ]] || chmod 644 $apt_repo_sources_path
+printf '%s\n' "$apt_repo_sources" > $apt_repo_sources_path
+read -r -d $'\x1c' apt_repo_preferences <<-EOF
+	Package: $package_name
+	Pin: release o=${apt_repo_origin},a=${apt_repo_suite}
+	Pin-Priority: 900
+$(printf '\x1c')
+EOF
+apt_repo_preferences_path="/etc/apt/preferences.d/${apt_repo_name}.pref"
+[[ -f $apt_repo_preferences_path ]] || touch $apt_repo_preferences_path
+[[ $(stat -c '%U %G' $apt_repo_preferences_path) == "root root" ]] || chown root:root $apt_repo_preferences_path
+[[ $(stat -c '%a' $apt_repo_preferences_path) == 644 ]] || chmod 644 $apt_repo_preferences_path
+printf '%s\n' "$apt_repo_preferences" > $apt_repo_preferences_path
+apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
+DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 -o Acquire::Retries=0 --assume-yes install $package_name || printf '%s\n' "error"
+
+
+
+
+
+
+
+
 
 apt install whois
+
+
 
 password='xyz'
 
@@ -27,7 +168,7 @@ readarray -t -d $'\n' wazuh_indexer_users < <(yq eval '. | keys | .[] | select(.
 
 for wazuh_indexer_user in "${wazuh_indexer_users[@]}"
 do
-    wazuh_indexer_user_password=$(openssl mac -digest sha256 -macopt keyfile:<(printf '%s\n' "$password") -in <(printf '%s' "wazuh:${wazuh_indexer_user}") HMAC)
+    wazuh_indexer_user_password=$(local-openssl mac -digest sha256 -macopt keyfile:<(printf '%s\n' "$password") -in <(printf '%s' "wazuh:${wazuh_indexer_user}") HMAC)
     wazuh_indexer_user_password_hash=$(mkpasswd --method=bcrypt --rounds=12 --stdin < <(printf '%s' "$wazuh_indexer_user_password"))
     yq_query_password_change=".${wazuh_indexer_user}.hash = strenv(wazuh_indexer_user_password_hash)"
     wazuh_indexer_users_file=$(yq -i "$yq_query_password_change" < <(printf '%s\n' "$wazuh_indexer_users_file"))
@@ -52,7 +193,7 @@ apt_repo_component='nginx'
 apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
 apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
 
-apt_repo_public_key=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_public_key_url")
+apt_repo_public_key=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --url "$apt_repo_public_key_url")
 read -r -d $'\n' apt_repo_public_key_header < <(printf '%s\n' "$apt_repo_public_key")
 [[ "$apt_repo_public_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]] || printf '%s\n' "error"
 
@@ -74,7 +215,7 @@ chmod 644 $apt_repo_sources_path
 
 apt_repo_preferences_path="/etc/apt/preferences.d/${apt_repo_name}.pref"
 apt_repo_packages_file_url="${apt_repo_url}/dists/${apt_repo_suite}/${apt_repo_component}/binary-amd64/Packages"
-apt_repo_packages_file=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_packages_file_url")
+apt_repo_packages_file=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --url "$apt_repo_packages_file_url")
 
 declare -A packages_dictionary
 apt_repo_preferences_packages=''
@@ -97,10 +238,11 @@ read -r -d $'\x1c' apt_repo_preferences <<-EOF
 $(printf '\x1c')
 EOF
 
-printf '%s\n' "$apt_repo_preferences" > $apt_repo_preferences_path
-chown root:root $apt_repo_preferences_path
-chmod 644 $apt_repo_preferences_path
+[[ -f $apt_repo_preferences_path ]] || touch $apt_repo_preferences_path
+[[ $(stat -c '%U %G' $apt_repo_preferences_path) == "root root" ]] || chown root:root $apt_repo_preferences_path
+[[ $(stat -c '%a' $apt_repo_preferences_path) == 644 ]] || chmod 644 $apt_repo_preferences_path
 
+printf '%s\n' "$apt_repo_preferences" > $apt_repo_preferences_path
 
 [[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
   apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"

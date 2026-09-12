@@ -255,13 +255,17 @@ apt_repo_public_key_url='https://nginx.org/keys/nginx_signing.key'
 apt_repo_url='https://nginx.org/packages/debian'
 apt_repo_suite=$debian_version_name
 apt_repo_component='nginx'
+apt_repo_origin='nginx'
 
-
+[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] && {
+  DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 --assume-yes purge $package_name
+  DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 --assume-yes autoremove
+}
 
 apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
 apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
 
-apt_repo_public_key=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_public_key_url")
+apt_repo_public_key=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --url "$apt_repo_public_key_url")
 read -r -d $'\n' apt_repo_public_key_header < <(printf '%s\n' "$apt_repo_public_key")
 [[ "$apt_repo_public_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]] || printf '%s\n' "error"
 
@@ -277,13 +281,14 @@ read -r -d $'\x1c' apt_repo_sources <<-EOF
 $(printf '\x1c')
 EOF
 
-printf '%s\n' "$apt_repo_sources" > $apt_repo_sources_path
-chown root:root $apt_repo_sources_path
-chmod 644 $apt_repo_sources_path
+[[ -f $apt_repo_sources_path ]] || touch $apt_repo_sources_path
+[[ $(stat -c '%U %G' $apt_repo_sources_path) == "root root" ]] || chown root:root $apt_repo_sources_path
+[[ $(stat -c '%a' $apt_repo_sources_path) == 644 ]] || chmod 644 $apt_repo_sources_path
 
-apt_repo_preferences_path="/etc/apt/preferences.d/${apt_repo_name}.pref"
-apt_repo_packages_file_url="${apt_repo_url}/dists/${apt_repo_suite}/${apt_repo_component}/binary-amd64/Packages"
-apt_repo_packages_file=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_packages_file_url")
+printf '%s\n' "$apt_repo_sources" > $apt_repo_sources_path
+
+apt_repo_packages_file_url=$(apt-get indextargets --format '$(URI)' "Repo-URI: ${apt_repo_url}" "Created-By: Packages")
+apt_repo_packages_file=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --url "$apt_repo_packages_file_url")
 
 declare -A packages_dictionary
 apt_repo_preferences_packages=''
@@ -301,15 +306,18 @@ done < <(printf '%s\n' "$apt_repo_packages_file")
 
 read -r -d $'\x1c' apt_repo_preferences <<-EOF
 	Package: $apt_repo_preferences_packages
-	Pin: release o=$apt_repo_name
+	Pin: release o=${apt_repo_origin},a=${apt_repo_suite}
 	Pin-Priority: 900
 $(printf '\x1c')
 EOF
 
-printf '%s\n' "$apt_repo_preferences" > $apt_repo_preferences_path
-chown root:root $apt_repo_preferences_path
-chmod 644 $apt_repo_preferences_path
+apt_repo_preferences_path="/etc/apt/preferences.d/${apt_repo_name}.pref"
 
+[[ -f $apt_repo_preferences_path ]] || touch $apt_repo_preferences_path
+[[ $(stat -c '%U %G' $apt_repo_preferences_path) == "root root" ]] || chown root:root $apt_repo_preferences_path
+[[ $(stat -c '%a' $apt_repo_preferences_path) == 644 ]] || chmod 644 $apt_repo_preferences_path
+
+printf '%s\n' "$apt_repo_preferences" > $apt_repo_preferences_path
 
 [[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
   apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
@@ -380,12 +388,6 @@ nginx_service_tls_pass_path="${nginx_service_tls_prefix}${nginx_service_name}.pa
 [[ $(stat -c '%U %G' $nginx_service_tls_pass_path) == "root root" ]] || chown root:root $nginx_service_tls_pass_path
 [[ $(stat -c '%a' $nginx_service_tls_pass_path) == 600 ]] || chmod 600 $nginx_service_tls_pass_path
 
-nginx_service_stream_config_file_path="${nginx_stream_config_files_prefix}${nginx_service_name}.conf"
-
-[[ -f $nginx_service_stream_config_file_path ]] || touch $nginx_service_stream_config_file_path
-[[ $(stat -c '%U %G' $nginx_service_stream_config_file_path) == "root root" ]] || chown root:root $nginx_service_stream_config_file_path
-[[ $(stat -c '%a' $nginx_service_stream_config_file_path) == 644 ]] || chmod 644 $nginx_service_stream_config_file_path
-
 nginx_service_listen_socket="${nginx_service_listen_ip}:${nginx_service_listen_port}"
 nginx_service_upstream_socket="${nginx_service_upstream_ip}:${nginx_service_upstream_port}"
 
@@ -405,6 +407,12 @@ read -r -d $'\x1c' nginx_service_stream_config_file <<-EOF
 $(printf '\x1c')
 EOF
 
+nginx_service_stream_config_file_path="${nginx_stream_config_files_prefix}${nginx_service_name}.conf"
+
+[[ -f $nginx_service_stream_config_file_path ]] || touch $nginx_service_stream_config_file_path
+[[ $(stat -c '%U %G' $nginx_service_stream_config_file_path) == "root root" ]] || chown root:root $nginx_service_stream_config_file_path
+[[ $(stat -c '%a' $nginx_service_stream_config_file_path) == 644 ]] || chmod 644 $nginx_service_stream_config_file_path
+
 printf '%s\n' "$nginx_service_stream_config_file" > $nginx_service_stream_config_file_path
 
 ====== Wazuh Repo :
@@ -417,7 +425,7 @@ apt_repo_suite='stable'
 apt_repo_component='main'
 apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
 
-apt_repo_public_key=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 "$apt_repo_public_key_url")
+apt_repo_public_key=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --url "$apt_repo_public_key_url")
 read -r -d $'\n' apt_repo_public_key_header < <(printf '%s\n' "$apt_repo_public_key")
 [[ "$apt_repo_public_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]] || printf '%s\n' "error"
 
@@ -809,8 +817,8 @@ wazuh_indexer_admin_pfx_password=''
 expect ./securityadmin.exp "$wazuh_indexer_ip" "$wazuh_indexer_port" < <(printf '%s\n%s\n' "$wazuh_root_ca_pfx_password" "$wazuh_indexer_admin_pfx_password")
 
 wazuh_indexer_admin_user_password='xyz'
-curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --config <(printf 'user = "%s:%s"\n' "admin" "$wazuh_indexer_admin_user_password") --url https://wazuh-indexer.local
-wazuh_indexer_response=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert root-ca.pem --config <(printf 'user = "%s:%s"\n' "admin" "$wazuh_indexer_admin_user_password") --url "https://wazuh-indexer.local/_nodes?filter_path=**.mlockall")
+curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --cacert root-ca.pem --config <(printf 'user = "%s:%s"\n' "admin" "$wazuh_indexer_admin_user_password") --url https://wazuh-indexer.local
+wazuh_indexer_response=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --cacert root-ca.pem --config <(printf 'user = "%s:%s"\n' "admin" "$wazuh_indexer_admin_user_password") --url "https://wazuh-indexer.local/_nodes?filter_path=**.mlockall")
 
 is_jvm_memory_limit_applied=$(jq --raw-output '.nodes[].process.mlockall' < <(printf '%s' "$wazuh_indexer_response"))
 [[ $is_jvm_memory_limit_applied == true ]] || exit 1
@@ -1026,7 +1034,7 @@ access:
 
 sudo systemctl restart wazuh-manager
 
-wazuh_server_api_token=$(curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert $wazuh_server_filebeat_root_ca_path --request POST --user wazuh:wazuh --url "${wazuh_server_api_url}security/user/authenticate?raw=true" )
+wazuh_server_api_token=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --cacert $wazuh_server_filebeat_root_ca_path --request POST --user wazuh:wazuh --url "${wazuh_server_api_url}security/user/authenticate?raw=true" )
 
 read -r -d '' wazuh_server_api_authorization_header <<-EOF
 	header = "Authorization: Bearer ${wazuh_server_api_token}"
@@ -1037,13 +1045,13 @@ wazuh_server_api_user_wazuh_password='xyz'
 
 wazuh_server_api_user_wazuh_password_json_object=$(printf '%s' "$wazuh_server_api_user_wazuh_password" | jq --raw-input --null-input '{password: input}')
 
-curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert "$wazuh_server_filebeat_root_ca_path" --request PUT --url "${wazuh_server_api_url}security/users/1" --data-raw @- --config <(printf '%s' "$wazuh_server_api_authorization_header") < <(printf '%s' "$wazuh_server_api_user_wazuh_password_json_object")
+curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --cacert "$wazuh_server_filebeat_root_ca_path" --request PUT --url "${wazuh_server_api_url}security/users/1" --data-raw @- --config <(printf '%s' "$wazuh_server_api_authorization_header") < <(printf '%s' "$wazuh_server_api_user_wazuh_password_json_object")
 
 wazuh_server_api_user_wazuh_wui_password='xyz'
 
 wazuh_server_api_user_wazuh_wui_password_json_object=$(printf '%s' "$wazuh_server_api_user_wazuh_wui_password" | jq --raw-input --null-input '{password: input}')
 
-curl --fail --silent --show-error --location --compressed --connect-timeout 3 --cacert $wazuh_server_filebeat_root_ca_path --request PUT --url "${wazuh_server_api_url}security/users/2" --data-raw @- --config <(printf '%s' "$wazuh_server_api_authorization_header") < <(printf '%s' "$wazuh_server_api_user_wazuh_wui_password_json_object")
+curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --cacert $wazuh_server_filebeat_root_ca_path --request PUT --url "${wazuh_server_api_url}security/users/2" --data-raw @- --config <(printf '%s' "$wazuh_server_api_authorization_header") < <(printf '%s' "$wazuh_server_api_user_wazuh_wui_password_json_object")
 
 
 
