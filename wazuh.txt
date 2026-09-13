@@ -244,34 +244,50 @@ comment ( cluster.* ) directives from the file
 
 add 127.0.0.1 to wazuh manager allowed ips if using nginx as tls termination solution for wazuh manager
 
-apt install curl gnupg2 ca-certificates
+apt-get install curl ca-certificates
+apt-get install --no-install-recommends gpg
 
 debian_version_name=$(source /etc/os-release && echo "$VERSION_CODENAME")
 
 package_name='nginx'
 
 apt_repo_name='nginx'
-apt_repo_public_key_url='https://nginx.org/keys/nginx_signing.key'
-apt_repo_url='https://nginx.org/packages/debian'
+apt_repo_key_url='https://nginx.org/keys/nginx_signing.key'
+apt_repo_url='https://nginx.org/packages/debian/'
 apt_repo_suite=$debian_version_name
 apt_repo_component='nginx'
 apt_repo_origin='nginx'
 
-[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] && {
-  DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 --assume-yes purge $package_name
-  DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 --assume-yes autoremove
-}
+apt_repo_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.pgp"
+[[ -f $apt_repo_key_path ]] || touch $apt_repo_key_path
+[[ $(stat -c '%U %G' $apt_repo_key_path) == "root root" ]] || chown root:root $apt_repo_key_path
+[[ $(stat -c '%a' $apt_repo_key_path) == 644 ]] || chmod 644 $apt_repo_key_path
 
-apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
+apt_repo_key=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --url "$apt_repo_key_url")
+apt_repo_key_dearmor_path=$(mktemp)
+gpg --output $apt_repo_key_dearmor_path --dearmor <(printf '%s' "$apt_repo_key") || printf '%s\n' "error"
+
+apt_repo_key_is_invalid=0
+if [[ $(file --brief --mime-type $apt_repo_key_path) != text/* ]]
+then
+  read -r apt_repo_key_header < <(printf '%s\n' "$apt_repo_key")
+  if [[ "$apt_repo_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]]
+  then
+    read -r apt_repo_key_digest _ < <(sha256sum $apt_repo_key_dearmor_path)
+    sha256sum --check --status <(printf '%s  %s\n' $apt_repo_key_digest $apt_repo_key_path) || apt_repo_key_is_invalid=1
+  else
+    apt_repo_key_is_invalid=1
+  fi
+else
+  apt_repo_key_is_invalid=1
+fi
+(( apt_repo_key_is_invalid )) && cat $apt_repo_key_dearmor_path > $apt_repo_key_path
+
+
+
+
 apt_repo_sources_path="/etc/apt/sources.list.d/${apt_repo_name}.sources"
 
-apt_repo_public_key=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --url "$apt_repo_public_key_url")
-read -r -d $'\n' apt_repo_public_key_header < <(printf '%s\n' "$apt_repo_public_key")
-[[ "$apt_repo_public_key_header" =~ ^-----BEGIN[[:space:]]PGP[[:space:]]PUBLIC[[:space:]]KEY[[:space:]]BLOCK-----$ ]] || printf '%s\n' "error"
-
-gpg --output $apt_repo_public_key_path --dearmor <(printf '%s' "$apt_repo_public_key")
-chown root:root $apt_repo_public_key_path
-chmod 644 $apt_repo_public_key_path
 read -r -d $'\x1c' apt_repo_sources <<-EOF
 	Types: deb
 	URIs: $apt_repo_url
@@ -287,8 +303,8 @@ EOF
 
 printf '%s\n' "$apt_repo_sources" > $apt_repo_sources_path
 
-apt_repo_packages_file_url=$(apt-get indextargets --format '$(URI)' "Repo-URI: ${apt_repo_url}" "Created-By: Packages")
-apt_repo_packages_file=$(curl --ipv4 --fail-with-body --silent --show-error --location-trusted --compressed --connect-timeout 3 --url "$apt_repo_packages_file_url")
+apt_repo_packages_file_path=$(apt-get indextargets --format '$(FILENAME)' "Repo-URI: ${apt_repo_url}" "Created-By: Packages")
+apt_repo_packages_file="$(/usr/lib/apt/apt-helper cat-file $apt_repo_packages_file_path)"
 
 declare -A packages_dictionary
 apt_repo_preferences_packages=''
@@ -318,6 +334,64 @@ apt_repo_preferences_path="/etc/apt/preferences.d/${apt_repo_name}.pref"
 [[ $(stat -c '%a' $apt_repo_preferences_path) == 644 ]] || chmod 644 $apt_repo_preferences_path
 
 printf '%s\n' "$apt_repo_preferences" > $apt_repo_preferences_path
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] && {
+  package_upstream_version=$(dpkg-query --show --showformat='${Version}' $package_name)
+  [[ $package_upstream_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+~${apt_repo_suite}$ ]] || {
+    DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 --assume-yes purge $package_name
+    DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 --assume-yes autoremove
+  }
+}
+
+.pref file check :
+
+readarray -t package_policy_output < <(apt-cache policy $package_name)
+output_line_count=${#package_policy_output[@]}
+package_prefered_repo_url=''
+for (( output_line_index = 0 ; output_line_index < output_line_count ; output_line_index++ ))
+do
+  this_line=${package_policy_output[output_line_index]}
+  [[ "$this_line" == *'Candidate:'* ]] && {
+    target_line_index=$((output_line_index + 3))
+    target_line=${package_policy_output[$target_line_index]}
+    read -r -d $'\n' -a target_line_fields <<< "$target_line"
+    package_prefered_repo_url=${target_line_fields[1]}
+    break
+  }
+done
+[[ $package_prefered_repo_url == $apt_repo_url ]] || printf '%s\n' "error"
+
+
+
+
+
+
+
+
+
+
 
 [[ $(dpkg-query --show --showformat='${Status}' $package_name) == 'install ok installed' ]] || {
   apt-get --quiet=2 -o Acquire::Retries=0 --error-on=any update || printf '%s\n' "error"
@@ -417,9 +491,12 @@ printf '%s\n' "$nginx_service_stream_config_file" > $nginx_service_stream_config
 
 ====== Wazuh Repo :
 
+apt-get install curl ca-certificates
+apt-get install --no-install-recommends gpg
+
 apt_repo_name='wazuh'
 apt_repo_public_key_url='https://packages.wazuh.com/key/GPG-KEY-WAZUH'
-apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.gpg"
+apt_repo_public_key_path="/etc/apt/keyrings/${apt_repo_name}-archive-keyring.pgp"
 apt_repo_url='https://packages.wazuh.com/4.x/apt/'
 apt_repo_suite='stable'
 apt_repo_component='main'
@@ -1636,4 +1713,8 @@ sudo --user wazuh-dashboard opensearch-dashboards-keystore add --force --stdin o
 server.ssl.certificate: /etc/wazuh-dashboard/certs/dashboard.pem
 server.ssl.key: /etc/wazuh-dashboard/certs/dashboard-key.pem
 opensearch.ssl.keyPassphrase: "${opensearch.ssl.keyPassphrase}"
+
+==============================================================
+
+
 
