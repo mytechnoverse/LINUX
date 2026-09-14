@@ -1,25 +1,138 @@
 
-wazuh-indexer : pkcs12
 
-wazuh-admin : pkcs 12
 
-wazuh-manager : pkcs8 encrypted nginx
+openssl version check ( candidate )
 
-wazuh-dashboard : pkcs12
+package being availabe 
 
-printf '%s\n' "error"
+
+(
+    set -Eeuo pipefail
+    shopt -s inherit_errexit
+    [[ -v apt_index_update_status ]] || apt_index_update_status=0
+
+    declare -A apt_repo_dependencies_official_dictionary=(
+        [gpgv]='gpgv|'
+        [debian-archive-keyring]='|'
+    )
+
+    declare -A apt_repo_dependencies_external_dictionary=(
+        [curl]='curl|'
+        [ca-certificates]='|'
+        [gpg]='gpg|--no-install-recommends'
+    )
+
+    ensure_application() {
+        local -n apt_index_update_status_ref=$1
+        local this_application_package=$2
+        local this_application_binary=${3-}
+        local this_application_package_options=${4-}
+        [[ $(dpkg-query --show --showformat='${Status}' $this_application_package 2>/dev/null) == 'install ok installed' ]] || {
+            (( apt_index_update_status_ref )) || {
+                apt-get --quiet=2 -o Acquire::Retries=0 -o Acquire::http::Timeout=300 -o Acquire::https::Timeout=300 --error-on=any update || {
+                    printf '%s\n' "apt index update failed error"
+                    return 1
+                }
+                apt_index_update_status_ref=1
+            }
+            local -a this_application_package_options_list=()
+            [[ -z "$this_application_package_options" ]] || {
+                read -r -a this_application_package_options_list <<< "$this_application_package_options"
+            }
+            DEBIAN_FRONTEND=noninteractive apt-get --quiet=2 \
+            -o Acquire::Retries=0 -o Acquire::http::Timeout=300 -o Acquire::https::Timeout=300 \
+            --assume-yes "${this_application_package_options_list[@]}" install $this_application_package || {
+                printf '%s\n' "package ( ${this_application_package} ) install error"
+                return 1
+            }
+        }
+        [[ -z "$this_application_binary" ]] || {
+            command -v $this_application_binary >/dev/null || {
+                printf '%s\n' "binary ( ${this_application_binary} ) not found in PATH error"
+                return 1
+            }
+        }
+    }
+
+    ensure_dependencies_dictionary() {
+        local -n apt_index_update_status_ref=$1
+        local -n dependencies_dictionary=$2
+        for this_application_package in "${!dependencies_dictionary[@]}"
+        do
+            local this_application_properties="${dependencies_dictionary[$this_application_package]}"
+            local this_application_binary
+            local this_application_package_options
+            IFS='|' read -r this_application_binary this_application_package_options <<< "$this_application_properties"
+            ensure_application "${!apt_index_update_status_ref}" $this_application_package $this_application_binary "$this_application_package_options"
+        done
+    }
+)
+
+
+
+
+exit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+apt_repo_debian_dependency_packages=
+
+apt_repo_external_dependency_packages=
+
+
+
+
+
+jq
+gawk
+
+nftables
+
+iproute2
+
+openssl
+chrony
+
+
+
+
+
+
+
+
+
+
 
 #######################################################################################################################################################
 
 ### openssl 4 install :
 
-[[ -v apt_is_package_index_updated ]] || apt_is_package_index_updated=0
+
 
 application_name='openssl'
 application_version_min='4.0.0'
 application_binary='openssl'
 source_package_url='https://github.com/openssl/openssl/releases/download/openssl-4.0.2/openssl-4.0.2.tar.gz'
-source_package_build_dependencies=(curl ca-certificates tar musl-tools build-essential perl libtext-template-perl)
+source_package_build_dependencies=(curl ca-certificates musl-tools build-essential perl libtext-template-perl)
 source_package_cpp_flags='-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu'
 source_package_configure_options=(--prefix=/nonexistent --openssldir=/nonexistent linux-x86_64 no-shared no-module no-async no-dso -static)
 source_package_compile_prefix='apps/'

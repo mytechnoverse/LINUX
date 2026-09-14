@@ -222,8 +222,101 @@ make -j$(nproc)
 strip --strip-all ./apps/openssl
 ldd ./apps/openssl
 
+----------------------------------------------------------------------------------------------------------------------------
+
+curl
+ca-certificates
+
+jq
+gawk
+
+bash-completion
+nftables
+
+iproute2
+iputils-ping
+iputils-tracepath
+bind9-dnsutils
+
+openssl
+chrony
+
+gpgv
+debian-archive-keyring
+
+--no-install-recommends gpg
+
+openssh-server
 
 
+
+
+essential deb packages :
+
+dpkg-query -W -f='${binary:Package} ${Essential}\n' | awk '$2 == "yes" {print $1}' | sort -u
+
+base-files
+base-passwd
+bash
+bsdutils
+coreutils
+dash
+debianutils
+diffutils
+dpkg
+findutils
+grep
+gzip
+hostname
+init-system-helpers
+libc-bin
+ncurses-base
+ncurses-bin
+perl-base
+sed
+sysvinit-utils
+tar
+util-linux
+
+apt-cache depends --recurse --important --installed $(dpkg-query -W -f='${binary:Package} ${Essential}\n' | awk '$2 == "yes" {print $1}') \
+| awk '/^[[:alnum:]][^ ]*$/ {print $1}' | sort -u | grep -Fvx -f <(dpkg-query -W -f='${binary:Package} ${Essential}\n' | awk '$2 == "yes" {print $1}')
+
+debconf
+gcc-14-base
+libacl1
+libattr1
+libaudit1
+libaudit-common
+libblkid1
+libbz2-1.0
+libc6
+libcap2
+libcap-ng0
+libcrypt1
+libdb5.3t64
+libdebconfclient0
+libgcc-s1
+libgmp10
+liblastlog2-2
+liblzma5
+libmd0
+libmount1
+libpam0g
+libpam-modules
+libpam-modules-bin
+libpam-runtime
+libpcre2-8-0
+libselinux1
+libsmartcols1
+libsqlite3-0
+libssl3t64
+libsystemd0
+libtinfo6
+libudev1
+libuuid1
+libzstd1
+openssl-provider-legacy
+zlib1g
 
 =========================================================================================================================================================================
 
@@ -244,7 +337,7 @@ comment ( cluster.* ) directives from the file
 
 add 127.0.0.1 to wazuh manager allowed ips if using nginx as tls termination solution for wazuh manager
 
-apt-get install curl ca-certificates
+apt-get install curl ca-certificates file
 apt-get install --no-install-recommends gpg
 
 debian_version_name=$(source /etc/os-release && echo "$VERSION_CODENAME")
