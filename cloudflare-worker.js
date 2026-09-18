@@ -4,27 +4,24 @@ let router_dictionary = {} ;
 router_dictionary[ 'dns-query' ] = 'https://cloudflare-dns.com/dns-query' ;
 router_dictionary[ 'ubuntu-security' ] = 'https://security.ubuntu.com/ubuntu' ;
 router_dictionary[ 'ubuntu-nginx' ] = 'https://nginx.org/packages/ubuntu' ;
+router_dictionary[ 'ubuntu-docker' ] = 'https://download.docker.com/linux/ubuntu' ;
 router_dictionary[ 'ubuntu' ] = 'https://archive.ubuntu.com/ubuntu' ;
 router_dictionary[ 'debian-security' ] = 'https://security.debian.org/debian-security' ;
 router_dictionary[ 'debian-nginx' ] = 'https://nginx.org/packages/debian' ;
+router_dictionary[ 'debian-docker' ] = 'https://download.docker.com/linux/debian' ;
 router_dictionary[ 'debian' ] = 'https://deb.debian.org/debian' ;
 router_dictionary[ 'docker' ] = 'https://registry-1.docker.io' ;
 router_dictionary[ 'docker-auth' ] = 'https://auth.docker.io' ;
 router_dictionary[ 'npmjs' ] = 'https://registry.npmjs.org' ;
+router_dictionary[ 'wazuh' ] = 'https://packages.wazuh.com/4.x/apt' ;
 
 let worker_banner_template = '' ;
 for( const route_name of Object.keys( router_dictionary ) ) {
-	if ( route_name == 'docker' ) {
-		worker_banner_template = worker_banner_template + route_name + ' : #HOST#\n'
-	} else {
-		worker_banner_template = worker_banner_template + route_name + ' : #URL#/' + route_name + '\n' ; 
-	}
+	worker_banner_template = worker_banner_template + route_name + ' : #URL#/' + route_name + '\n' ; 
 }
 
 function print_worker_banner( cloudflare_worker_url , worker_banner_template ) {
-	const cloudflare_worker_host = cloudflare_worker_url.slice( 8 ) ;
 	worker_banner_template = worker_banner_template.replaceAll( '#URL#' , cloudflare_worker_url );
-	worker_banner_template = worker_banner_template.replace( '#HOST#' , cloudflare_worker_host );
 	return worker_banner_template ;
 }
 
