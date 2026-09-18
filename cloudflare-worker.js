@@ -1,117 +1,117 @@
 
-// expose https proxy
+let router_dictionary = {} ;
 
-const router_dictionary = {
-	'dns-query': 'https://cloudflare-dns.com/dns-query' ,
-	'npmjs': 'https://registry.npmjs.org' ,
-	'ubuntu': 'https://archive.ubuntu.com/ubuntu' ,
-	'ubuntu-security': 'https://security.ubuntu.com/ubuntu' ,
-	'ubuntu-nginx': 'https://nginx.org/packages/ubuntu' ,
-	'debian': 'https://deb.debian.org/debian' ,
-	'debian-security': 'https://security.debian.org/debian-security' ,
-	'debian-nginx': 'https://nginx.org/packages/debian' ,
-	'docker-auth': 'https://auth.docker.io' ,
-	'v2': 'https://registry-1.docker.io' ,
-} ;
+router_dictionary[ 'dns-query' ] = 'https://cloudflare-dns.com/dns-query' ;
+router_dictionary[ 'ubuntu-security' ] = 'https://security.ubuntu.com/ubuntu' ;
+router_dictionary[ 'ubuntu-nginx' ] = 'https://nginx.org/packages/ubuntu' ;
+router_dictionary[ 'ubuntu' ] = 'https://archive.ubuntu.com/ubuntu' ;
+router_dictionary[ 'debian-security' ] = 'https://security.debian.org/debian-security' ;
+router_dictionary[ 'debian-nginx' ] = 'https://nginx.org/packages/debian' ;
+router_dictionary[ 'debian' ] = 'https://deb.debian.org/debian' ;
+router_dictionary[ 'docker' ] = 'https://registry-1.docker.io' ;
+router_dictionary[ 'docker-auth' ] = 'https://auth.docker.io' ;
+router_dictionary[ 'npmjs' ] = 'https://registry.npmjs.org' ;
+
+function sort_length_descending( list_name ) {
+	return list_name.sort( ( a , b ) => { return b.length - a.length });
+}
+
+router_dictionary[ 'v2' ] = router_dictionary[ 'docker' ];
+delete router_dictionary[ 'docker' ];
+
+const route_names_list = sort_length_descending( Object.keys( router_dictionary ) );
+
+async function http_response( target_url , request_headers , follow_redirect , request_obj ) {
+	const request_method = request_obj.method ;
+	return await fetch(
+		new Request( target_url , {
+			headers: request_headers ,
+			redirect: ( follow_redirect ) ? 'follow' : 'manual' ,
+			cache: 'no-store' ,
+			method: request_method ,
+			body: ( request_method == 'GET' || request_method == 'HEAD' ) ? undefined : request_obj.body ,
+		})
+	); 
+}
 
 export default {
 	async fetch( request ) {
-
 		const redirect_header_name = 'Location' ;
+		const auth_header_names_list = [ 'authorization' , 'cookie' ];
 		const docker_auth_header_name = 'WWW-Authenticate' ;
-		const general_auth_header_names_list = [ 'authorization' , 'cookie' ];
-		const client_request_method = request.method ;
 		const client_request_headers = new Headers( request.headers );
 		client_request_headers.delete( 'Host' );
 		const client_request_url = new URL( request.url ) ;
-		const client_request_url_path = client_request_url.pathname ;
 		const client_request_url_query = client_request_url.search ;
 		const cloudflare_worker_url = client_request_url.origin ;
-		
-
-		for ( const route_name of Object.keys( router_dictionary ) ) {
-			const this_route_url_path_prefix = '/' + route_name ;
-			if ( client_request_url_path.startsWith( this_route_url_path_prefix ) == false ) {
-				continue
-			}
-			let target_request_url_path = client_request_url_path ;
-			if ( route_name != 'v2' ) {
-				target_request_url_path = target_request_url_path.slice( this_route_url_path_prefix.length ) ;
-			}
-			const target_url = new URL( target_request_url_path + client_request_url_query , router_dictionary[ route_name ] );
-			target_request = new Request( target_url , {
-				method: client_request_method ,
-				headers: client_request_headers ,
-				body: ( client_request_method == 'GET' || client_request_method == 'HEAD' ) ? undefined : request.body ,
-				redirect: ( route_name == 'v2' ) ? 'manual' : 'follow' ,
-			});
-			let target_response = await fetch( target_request , {
-				cache: 'no-store' ,
-			});
-			if ( route_name != 'v2' ) {
-				return target_response ;
-			} else {
-				if ( target_response.status == 307 ) {
-					const new_target_headers = new Headers( target_response.headers );
-					const target_response_redirect_url = new_target_headers.get( redirect_header_name ) ;
-					const new_target_url = new URL( target_response_redirect_url , target_url );
-
+		let client_request_url_path = client_request_url.pathname ;
+		let client_request_validation = false ;
+		let route_name ;
+		let route_url ;
+		for ( const this_route_name of route_names_list ) {
+			const this_route_url_path_prefix = '/' + this_route_name ;
+			if ( client_request_url_path.startsWith( this_route_url_path_prefix ) ) {
+				client_request_validation = true ;
+				route_name = this_route_name ;
+				route_url = router_dictionary[ route_name ] ;
+				if ( route_name != 'v2' ) {
+					client_request_url_path = client_request_url_path.slice( this_route_url_path_prefix.length ) ;
 				}
-				if ( target_response.status == 401 ) {
-					if ( target_response.headers.has( docker_auth_header_name ) ) {
-						let target_response_headers_auth_proxied = new Headers( target_response.headers );
-						let target_response_docker_auth_header = target_response_headers_auth_proxied.get( docker_auth_header_name );
-						if ( target_response_docker_auth_header.startsWith( 'Bearer' ) ) {
-							const docker_auth_realm_official_key_value = 'realm="' + router_dictionary[ 'docker-auth' ] + '/token"' ;
-							const docker_auth_realm_proxied_key_value = 'realm="' + cloudflare_worker_url + '/docker-auth/token"' ;
-							const target_response_docker_auth_header_proxied = target_response_docker_auth_header.replace(
-								docker_auth_realm_official_key_value ,
-								docker_auth_realm_proxied_key_value
-							);
-							target_response_headers_auth_proxied.set( docker_auth_header_name , target_response_docker_auth_header_proxied );
-							target_response = new Response(
-								target_response.body , {
-									status: target_response.status ,
-									statusText: target_response.statusText ,
-									headers: target_response_headers_auth_proxied ,
-								}
-							);
-							return target_response ;
+				break
+			}
+		}
+		if ( client_request_validation == false ) {
+			return new Response( 'Bad Request' , {
+				status: 400 ,
+			});
+		}
+		const target_url = new URL( client_request_url_path + client_request_url_query , route_url );
+		if ( route_name != 'v2' ) {
+			return await http_response( target_url , client_request_headers , true , request );
+		}
+		let target_response = await http_response( target_url , client_request_headers , false , request );
+		if ( target_response.status == 401 ) {
+			if ( target_response.headers.has( docker_auth_header_name ) ) {
+				let target_response_headers_auth_proxied = new Headers( target_response.headers );
+				let target_response_docker_auth_header = target_response_headers_auth_proxied.get( docker_auth_header_name );
+				if ( target_response_docker_auth_header.startsWith( 'Bearer' ) ) {
+					const docker_auth_realm_official_key_value = 'realm="' + router_dictionary[ 'docker-auth' ] + '/token"' ;
+					const docker_auth_realm_proxied_key_value = 'realm="' + cloudflare_worker_url + '/docker-auth/token"' ;
+					const target_response_docker_auth_header_proxied = target_response_docker_auth_header.replace(
+						docker_auth_realm_official_key_value ,
+						docker_auth_realm_proxied_key_value
+					);
+					target_response_headers_auth_proxied.set( docker_auth_header_name , target_response_docker_auth_header_proxied );
+					target_response = new Response(
+						target_response.body , {
+							status: target_response.status ,
+							statusText: target_response.statusText ,
+							headers: target_response_headers_auth_proxied ,
 						}
-					}
+					);
 				}
 			}
 		}
+		if ( target_response.status == 307 ) {
+			if ( target_response.headers.has( redirect_header_name ) ) {
+				let target_url_redirected = target_response.headers.get( redirect_header_name );
+				target_url_redirected = new URL( target_url_redirected , target_url );
+				let target_request_headers_auth_removed = new Headers( client_request_headers );
+				for ( const this_auth_header_name of auth_header_names_list ) {
+					if ( target_request_headers_auth_removed.has( this_auth_header_name ) ) {
+						target_request_headers_auth_removed.delete( this_auth_header_name );
+					}
+				}
+				target_response = await http_response( target_url_redirected , target_request_headers_auth_removed , false , request );
+			}
+		}
+		return target_response ;
 	}
 };
 
 
 
 
-
-for ( const general_auth_header_name of general_auth_header_names_list ) {
-	if ( redirect_headers.has( http_auth_header_name ) ) {
-		redirect_headers.delete( http_auth_header_name );
-	}
-}
-
-
-
-
-
-while (  && redirect_hops < 5 ) {
-	let this_redirect_url ;
-	
-
-
-
-    target_response = await fetch( redirect_target_url , {
-        method: ( client_request_method == 'HEAD' ) ? 'HEAD' : 'GET' ,
-        headers: redirect_headers ,
-        cache: 'no-store' ,
-    });
-    redirect_hops++ ;
-}
 
 
 
