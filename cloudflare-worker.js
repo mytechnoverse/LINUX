@@ -12,6 +12,22 @@ router_dictionary[ 'docker' ] = 'https://registry-1.docker.io' ;
 router_dictionary[ 'docker-auth' ] = 'https://auth.docker.io' ;
 router_dictionary[ 'npmjs' ] = 'https://registry.npmjs.org' ;
 
+let worker_banner_template = '' ;
+for( const route_name of Object.keys( router_dictionary ) ) {
+	if ( route_name == 'docker' ) {
+		worker_banner_template = worker_banner_template + route_name + ' : #HOST#\n'
+	} else {
+		worker_banner_template = worker_banner_template + route_name + ' : #URL#/' + route_name + '\n' ; 
+	}
+}
+
+function print_worker_banner( cloudflare_worker_url , worker_banner_template ) {
+	const cloudflare_worker_host = cloudflare_worker_url.slice( 8 ) ;
+	worker_banner_template = worker_banner_template.replaceAll( '#URL#' , cloudflare_worker_url );
+	worker_banner_template = worker_banner_template.replace( '#HOST#' , cloudflare_worker_host );
+	return worker_banner_template ;
+}
+
 function sort_length_descending( list_name ) {
 	return list_name.sort( ( a , b ) => { return b.length - a.length });
 }
@@ -45,6 +61,11 @@ export default {
 		const client_request_url_query = client_request_url.search ;
 		const cloudflare_worker_url = client_request_url.origin ;
 		let client_request_url_path = client_request_url.pathname ;
+		if ( client_request_url_path == '/' ) {
+			return new Response( print_worker_banner( cloudflare_worker_url , worker_banner_template ) , {
+				status: 200 ,
+			});
+		}
 		let client_request_validation = false ;
 		let route_name ;
 		let route_url ;
@@ -65,7 +86,7 @@ export default {
 				status: 400 ,
 			});
 		}
-		const target_url = new URL( client_request_url_path + client_request_url_query , route_url );
+		const target_url = new URL( route_url + client_request_url_path + client_request_url_query );
 		if ( route_name != 'v2' ) {
 			return await http_response( target_url , client_request_headers , true , request );
 		}
@@ -94,8 +115,7 @@ export default {
 		}
 		if ( target_response.status == 307 ) {
 			if ( target_response.headers.has( redirect_header_name ) ) {
-				let target_url_redirected = target_response.headers.get( redirect_header_name );
-				target_url_redirected = new URL( target_url_redirected , target_url );
+				const target_url_redirected = target_response.headers.get( redirect_header_name );
 				let target_request_headers_auth_removed = new Headers( client_request_headers );
 				for ( const this_auth_header_name of auth_header_names_list ) {
 					if ( target_request_headers_auth_removed.has( this_auth_header_name ) ) {
