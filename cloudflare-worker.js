@@ -17,7 +17,11 @@ router_dictionary[ 'wazuh' ] = 'https://packages.wazuh.com/4.x/apt' ;
 
 let worker_banner_template = '' ;
 for( const route_name of Object.keys( router_dictionary ) ) {
-	worker_banner_template = worker_banner_template + route_name + ' : #URL#/' + route_name + '\n' ; 
+	if ( route_name == 'docker' ) {
+		worker_banner_template = worker_banner_template + route_name + ' : #URL#/\n' ; 
+	} else {
+		worker_banner_template = worker_banner_template + route_name + ' : #URL#/' + route_name + '\n' ; 
+	}
 }
 
 function print_worker_banner( cloudflare_worker_url , worker_banner_template ) {

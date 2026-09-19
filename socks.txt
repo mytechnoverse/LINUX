@@ -1,0 +1,551 @@
+
+/usr/local/bin/xray , 755
+
+/etc/systemd/system/xray.service
+
+/usr/local/bin/xray -version
+
+/usr/local/etc/xray/config.json
+
+https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+
+/etc/systemd/system/xray.service :
+
+[Unit]
+Description=xray
+After=network.target nss-lookup.target
+
+[Service]
+User=nobody
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+
+
+chmod 644 /etc/systemd/system/xray.service
+
+systemctl daemon-reload
+
+systemctl -q is-active xray.service
+
+
+
+ai : 
+https://xtls.github.io/llms-full.txt
+
+
+xray version
+
+xray help
+
+xray test --config $config_path
+
+xray run --config $config_path
+
+xray tls cert 
+
+
+
+
+v2ray run --config=/etc/v2ray/config.json
+
+
+
+xray uuid
+
+
+
+// v2ray api --server 127.0.0.1:8080
+
+v2ray tls cert --json=false --name $common_name --domain $subject_alternative_name --org $org_name --expire 360 --file $pem_files_prefix 
+
+v2ray tls ping --ip $ip_address $domain_name
+
+
+
+
+
+
+
+
+
+nginx :
+
+
+VLESS WSS , GRPC :
+
+server {
+    listen 443 ssl http2;
+    server_name example.com;
+    ssl_certificate /path/to/example.cer;
+	ssl_certificate_key /path/to/example.key;
+    location / {
+        root
+        index
+    }
+    location /ws {
+        if ($http_upgrade != "websocket") {
+            return 404;
+        }
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_pass http://127.0.0.1:3001;
+    }
+    location /grpc {
+		if ($http_content_type !~ "^application/grpc") {
+			return 404;
+		}
+        grpc_set_header Host $host;
+		grpc_set_header X-Real-IP $remote_addr;
+        grpc_set_header X-Forwarded-For $remote_addr;
+		grpc_pass grpc://127.0.0.1:3002;
+	}
+}
+
+
+server :
+
+"inbounds": [
+    {
+        "listen": "127.0.0.1",
+        "port": 3001,
+        "protocol": "vless",
+        "settings": {
+            "clients": [
+                {
+                    "id": ""
+                }
+            ],
+            "decryption": "none"
+        },
+        "streamSettings": {
+            "network": "ws",
+            "security": "none",
+            "wsSettings": {
+                "path": "/ws"
+            }
+        },
+    },
+    {
+        "listen": "127.0.0.1",
+        "port": 3002,
+        "protocol": "vless",
+        "settings": {
+            "clients": [
+                {
+                    "id": "",
+                }
+            ],
+            "decryption": "none"
+        },
+        "streamSettings": {
+            "network": "grpc",
+            "security": "none",
+            "grpcSettings": {
+                "serviceName": "grpc"
+            }
+        }
+    },
+],
+
+"outbounds": [
+    {
+        "protocol": "freedom",
+        "settings": {}
+    },
+    {
+        "tag": "DOH",
+        "protocol": "dns",
+        "settings": {
+            "address": "127.0.0.1",
+            "port": 53
+        }
+    }
+]
+
+"routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+        {
+            "port": 53,
+            "network": "tcp,udp",
+            "outboundTag": "DOH"
+        },
+    ]
+}
+
+
+
+
+client :
+
+"inbounds": [
+    {
+        "protocol": "socks",
+        "port": "1080",
+        "settings": {
+            "auth": "password",
+            "users": [
+                {
+                    "user": "my-username",
+                    "pass": "my-password"
+                }
+            ],
+            "udp": true,
+            "ip": "172.16.1.2",
+        }
+    },
+    {
+        "protocol": "http",
+        "port": "8080",
+        "settings": {
+            "users": [
+                {
+                    "user": "my-username",
+                    "pass": "my-password"
+                }
+            ],
+            "allowTransparent": false,
+        }
+    }
+] ,
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"outbounds": [
+    {
+        "protocol": "vless",
+        "settings": {
+            "address": "xyz.com",
+            "port": 443,
+            "id": "", 
+            "encryption": "none"
+        },
+        "streamSettings": {
+            "network": "ws",
+            "wsSettings": {
+                "path": "/ws"
+            },
+            "security": "tls",
+            "tlsSettings": {
+                "allowInsecure": false,
+                "serverName": "xyz.com",
+                "fingerprint": "chrome"
+            }
+        }
+    },
+    {
+        "protocol": "vless",
+        "settings": {
+            "address": "xyz.com",
+            "port": 443,
+            "id": "",
+            "encryption": "none"
+        },
+        "streamSettings": {
+            "network": "grpc",
+            "grpcSettings": {
+                "serviceName": "grpc"
+            },
+            "security": "tls",
+            "tlsSettings": {
+                "allowInsecure": false,
+                "serverName": "xyz.com",
+                "fingerprint": "chrome"
+            }
+        }
+    }
+],
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+================================================================================================
+
+
+
+
+
+
+main object : 
+
+{
+    "log": {},
+    "api": {},
+    "dns": {},
+    "routing": {},
+    "policy": {},
+    "inbounds": [],
+    "outbounds": [],
+    "transport": {},
+    "stats": {},
+    "reverse": {}
+}
+
+transport object :
+
+{
+    "tcpSettings": {},
+    "kcpSettings": {},
+    "wsSettings": {},
+    "httpSettings": {},
+    "quicSettings": {},
+    "dsSettings": {}
+}
+
+
+inbound object :
+
+{
+    "listen": "0.0.0.0",
+    "port": 1080,
+    "protocol": "Protocol Name",
+    "settings": {},
+    "streamSettings": {},
+}
+
+stream settings object :
+
+{
+    "network": "ws",
+    "security": "tls",
+    "tlsSettings": {},
+    "wsSettings": {},
+}
+
+tls settings :
+
+{
+    "serverName": "xyz.com",
+    "allowInsecure": false,
+    "alpn": [
+        "h2",
+        "http/1.1"
+    ],
+    "certificates": [],
+    "disableSystemRoot": true
+}
+
+certificate obj :
+
+{
+    "usage": "encipherment",
+    "certificateFile": "/path/to/certificate.crt",
+}
+
+websocket object :
+
+{
+    "acceptProxyProtocol": false,
+    "path": "/ws",
+    "headers": {
+        "Host": "v2ray.com"
+    },
+    "maxEarlyData": 1024,
+    "useBrowserForwarding": false,
+    "earlyDataHeaderName":""
+}
+
+outbound object :
+
+{
+    "sendThrough": "0.0.0.0",
+    "protocol": "协议名称",
+    "settings": {},
+    "tag": "标识",
+    "streamSettings": {},
+}
+
+outbound dns object :
+
+{
+    "address": "1.1.1.1",
+    "port": 53
+}
+
+http protocol inbound :
+
+{
+    "timeout": 0,
+    "accounts": [
+        {
+            "user": "my-username",
+            "pass": "my-password"
+        }
+    ],
+    "allowTransparent": false,
+    "userLevel": 0
+}
+
+socks protocol inbound :
+
+{
+    "auth": "password",
+    "accounts": [
+        {
+            "user": "my-username",
+            "pass": "my-password"
+        }
+    ],
+    "udp": true,
+    "ip": "127.0.0.1",
+    "userLevel": 0,
+    "packetEncoding": "None"
+}
+
+
+
+
+
+
+
+
+
+server :
+
+{
+    "inbounds": [
+        {
+            "port": 10086, // server listening port
+            "protocol": "vmess",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "b831381d-6324-4d53-ad4f-8cda48b30811"
+                    }
+                ]
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "protocol": "freedom"
+        }
+    ]
+}
+
+client :
+
+{
+    "inbounds": [
+        {
+            "port": 1080,
+            "listen": "127.0.0.1",
+            "protocol": "socks",
+            "settings": {
+                "udp": true
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "protocol": "vmess",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": "xyz.com",
+                        "port": 443,
+                        "users": [
+                            {
+                                "id": "b831381d-6324-4d53-ad4f-8cda48b30811"
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "protocol": "freedom",
+            "tag": "direct"
+        }
+    ],
+    "routing": {
+        "domainStrategy": "IPOnDemand",
+        "rules": [
+            {
+                "type": "field",
+                "ip": [
+                    "geoip:private"
+                ],
+                "outboundTag": "direct"
+            }
+        ]
+    }
+}
+
+
