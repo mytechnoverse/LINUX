@@ -1,4 +1,35 @@
 
+https://xtls.github.io/llms-full.txt
+
+xray server :
+
+nano /etc/ufw/before.rules ( inside the *filter section , before the COMMIT line ) :
+
+-A ufw-before-input -p 47 -s 172.16.1.2 -j ACCEPT
+
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp
+ufw allow 443/tcp
+ufw enable
+
+xray client :
+
+nano /etc/hosts : 172.16.1.2 xyz.com
+getent ahostsv4 xyz.com
+ping xyz.com
+
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp
+ufw allow 8081/tcp
+ufw allow 8082/tcp
+ufw allow 1081/tcp
+ufw allow 1082/tcp
+ufw allow 1081/udp
+ufw allow 1082/udp
+ufw enable
+
 /etc/apt/sources.list.d/ubuntu.sources :
 
 Types: deb
@@ -17,7 +48,10 @@ apt update
 
 apt install ubuntu-keyring gpgv
 
-apt install pptp-linux ppp
+download ( ppp ) and ( pptp-linux ) packages 
+
+dpkg -i ( ppp )
+dpkg -i ( pptp-linux )
 
 vpn_ip='172.16.1.2'
 vpn_user='user2'
@@ -36,12 +70,13 @@ refuse-eap
 defaultroute
 replacedefaultroute
 usepeerdns
+noauth
 nodetach
 
 nano /etc/systemd/system/pptp-vpn-2.service :
 
 [Unit]
-Description=PPTP VPN VPN 2
+Description=PPTP VPN 2
 After=network-online.target
 Wants=network-online.target
 
@@ -60,7 +95,7 @@ systemctl start pptp-vpn-2
 
 apt install dnscrypt-proxy bind9-dnsutils
 
-dpkg -L dnscrypt-proxy
+nano /etc/dnscrypt-proxy/dnscrypt-proxy.toml :
 
 server_names = ['cloudflare']
 listen_addresses = ['127.0.0.1:53']
@@ -75,25 +110,24 @@ odoh_servers = false
 cache = true
 cache_size = 4096
 
-sudo systemctl restart dnscrypt-proxy
-sudo systemctl enable dnscrypt-proxy
+dnscrypt-proxy -check -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+dnscrypt-proxy -resolve google.com
 
-sudo ss -lntup
+mkdir -p /etc/systemd/system/dnscrypt-proxy.service.d/
+
+nano /etc/systemd/system/dnscrypt-proxy.service.d/override.conf :
+
+[Service]
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+systemctl daemon-reload
+systemctl restart dnscrypt-proxy
+systemctl status dnscrypt-proxy
+systemctl enable dnscrypt-proxy
+
+ss -lntup
 
 dig @127.0.0.1 whoami.cloudflare ch txt
-
-/etc/resolv.conf :
-
-nameserver 127.0.0.1
-
-
-dnscrypt-proxy -check
-
-dnscrypt-proxy -list
-
-dnscrypt-proxy -config /etc/dnscrypt-proxy.toml
-
-dnscrypt-proxy -resolve google.com
 
 apt install ca-certificates curl lsb-release gpg
 
@@ -126,100 +160,26 @@ Pin-Priority: 900
 apt update
 apt install nginx
 
-mkdir -p /etc/nginx/tls/xyz.com/
-
 openssl ecparam -genkey -name prime256v1 -noout -out xyz.com.key
-
 openssl req -new -x509 -key xyz.com.key -out xyz.com.crt -days 3650 -subj "/CN=xyz.com" -addext "subjectAltName=DNS:xyz.com"
 
+mkdir -p /etc/nginx/tls/xyz.com/
 cp ./xyz.com.key /etc/nginx/tls/xyz.com/xyz.com.key
-
 cp ./xyz.com.crt /etc/nginx/tls/xyz.com/xyz.com.crt
 
-
-https://xtls.github.io/llms-full.txt
-
-https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
-
-openssl x509 -in /etc/nginx/tls/xyz.com/xyz.com.crt -noout -fingerprint -sha256
-
-xray uuid
-
-
-/usr/share/nginx/html/index.html :
-
-<!DOCTYPE html>
-<html>
-<body>
-<h1>xyz.com</h1>
-</body>
-</html>
-
-/usr/local/bin/xray , 755
-
-/usr/local/bin/xray -version
-
-/usr/local/etc/xray/config.json
-
-/etc/systemd/system/xray.service :
-
-[Unit]
-Description=xray
-After=network.target nss-lookup.target
-
-[Service]
-User=nobody
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
-ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
-Restart=on-failure
-RestartPreventExitStatus=23
-LimitNPROC=10000
-LimitNOFILE=1000000
-RuntimeDirectory=xray
-RuntimeDirectoryMode=0755
-
-[Install]
-WantedBy=multi-user.target
-
-
-chmod 644 /etc/systemd/system/xray.service
-
-systemctl daemon-reload
-
-systemctl status xray
-
-
-
-xray version
-
-xray help
-
-xray test --config $config_path
-
-xray run --config $config_path
-
-xray run --confdir /etc/v2ray/ 
-
-
-nginx :
+nano /etc/nginx/conf.d/default.conf :
 
 server {
     listen 443 ssl;
     http2 on;
     server_name xyz.com;
-    ssl_protocols TLSv1.3;
     ssl_certificate /etc/nginx/tls/xyz.com/xyz.com.crt;
 	ssl_certificate_key /etc/nginx/tls/xyz.com/xyz.com.key;
     location / {
-        root /usr/share/nginx/html
-        index index.html
+        root /usr/share/nginx/html;
+        index index.html;
     }
-    location /ws {
-        if ($http_upgrade != "websocket") {
-            return 404;
-        }
+    location /websocket {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -229,9 +189,6 @@ server {
         proxy_pass http://127.0.0.1:3001;
     }
     location /grpc {
-		if ($http_content_type !~ "^application/grpc") {
-			return 404;
-		}
         grpc_set_header Host $host;
         grpc_set_header X-Forwarded-For $remote_addr;
         client_max_body_size 0;
@@ -240,6 +197,18 @@ server {
 	}
 }
 
+nginx -t
+
+systemctl restart nginx
+systemctl status nginx
+
+ss -lntup
+
+xray uuid
+
+openssl x509 -in /etc/nginx/tls/xyz.com/xyz.com.crt -noout -fingerprint -sha256
+
+config.json ( server ) :
 
 server.json :
 
@@ -253,7 +222,7 @@ server.json :
             "settings": {
                 "clients": [
                     {
-                        "id": "",
+                        "id": ""
                     }
                 ],
                 "decryption": "none"
@@ -262,7 +231,7 @@ server.json :
                 "method": "websocket",
                 "security": "none",
                 "wsSettings": {
-                    "path": "/ws"
+                    "path": "/websocket"
                 },
                 "sockopt": {
                     "trustedXForwardedFor": ["X-Forwarded-For"]
@@ -333,7 +302,7 @@ server.json :
 }
 
 
-client :
+config.json ( client ) :
 
 {
     "inbounds": [
@@ -343,13 +312,7 @@ client :
             "listen": "172.16.1.2",
             "port": "1081",
             "settings": {
-                "auth": "password",
-                "users": [
-                    {
-                        "user": "test",
-                        "pass": "test"
-                    }
-                ],
+                "auth": "noauth",
                 "udp": true,
                 "ip": "172.16.1.2"
             }
@@ -358,16 +321,7 @@ client :
             "tag": "websocket-http-inbound",
             "protocol": "http",
             "listen": "172.16.1.2",
-            "port": "8081",
-            "settings": {
-                "users": [
-                    {
-                        "user": "test",
-                        "pass": "test"
-                    }
-                ],
-                "allowTransparent": false
-            }
+            "port": "8081"
         },
         {
             "tag": "grpc-socks-inbound",
@@ -375,13 +329,7 @@ client :
             "listen": "172.16.1.2",
             "port": "1082",
             "settings": {
-                "auth": "password",
-                "users": [
-                    {
-                        "user": "test",
-                        "pass": "test"
-                    }
-                ],
+                "auth": "noauth",
                 "udp": true,
                 "ip": "172.16.1.2"
             }
@@ -390,16 +338,7 @@ client :
             "tag": "grpc-http-inbound",
             "protocol": "http",
             "listen": "172.16.1.2",
-            "port": "8082",
-            "settings": {
-                "users": [
-                    {
-                        "user": "test",
-                        "pass": "test"
-                    }
-                ],
-                "allowTransparent": false
-            }
+            "port": "8082"
         }
     ] ,
     "outbounds": [
@@ -415,7 +354,7 @@ client :
             "streamSettings": {
                 "method": "websocket",
                 "wsSettings": {
-                    "path": "/ws"
+                    "path": "/websocket"
                 },
                 "security": "tls",
                 "tlsSettings": {
@@ -470,5 +409,46 @@ client :
     }
 }
 
+apt install curl ca-certificates unzip
+curl -LO https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+unzip Xray-linux-64.zip
 
+./xray run --test --config ./config.json
 
+cp ./xray /usr/local/bin/
+mkdir -p /usr/local/etc/xray/
+cp config.json /usr/local/etc/xray/
+
+nano /etc/systemd/system/xray.service :
+
+[Unit]
+Description=xray
+After=network.target nss-lookup.target
+
+[Service]
+User=nobody
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+RuntimeDirectory=xray
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
+
+systemctl daemon-reload
+systemctl start xray
+systemctl enable xray
+systemctl status xray 
+
+ss -lntup
+
+curl -v -x socks5h://172.16.1.2:1081 https://api.ipify.org
+curl -v -x socks5h://172.16.1.2:1082 https://api.ipify.org
+curl -v -x http://172.16.1.2:8081 https://api.ipify.org
+curl -v -x http://172.16.1.2:8082 https://api.ipify.org
