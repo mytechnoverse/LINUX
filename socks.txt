@@ -1,34 +1,13 @@
 
 https://xtls.github.io/llms-full.txt
 
-xray server :
+https://security.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb
+https://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1build1_all.deb
+https://security.ubuntu.com/ubuntu/pool/main/g/gnupg2/gpgv_2.4.8-4ubuntu3.1_amd64.deb
 
-nano /etc/ufw/before.rules ( inside the *filter section , before the COMMIT line ) :
-
--A ufw-before-input -p 47 -s 172.16.1.2 -j ACCEPT
-
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp
-ufw allow 443/tcp
-ufw enable
-
-xray client :
-
-nano /etc/hosts : 172.16.1.2 xyz.com
-getent ahostsv4 xyz.com
-ping xyz.com
-
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp
-ufw allow 8081/tcp
-ufw allow 8082/tcp
-ufw allow 1081/tcp
-ufw allow 1082/tcp
-ufw allow 1081/udp
-ufw allow 1082/udp
-ufw enable
+dpkg-query --show --showformat='${Status}' ca-certificates | dpkg -i ca-certificates_20260601~26.04.1_all.deb
+dpkg-query --show --showformat='${Status}' gpgv | dpkg -i gpgv_2.4.8-4ubuntu3.1_amd64.deb
+dpkg-query --show --showformat='${Status}' ubuntu-keyring | dpkg -i ubuntu-keyring_2023.11.28.1build1_all.deb
 
 /etc/apt/sources.list.d/ubuntu.sources :
 
@@ -46,22 +25,70 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
 apt update
 
-apt install ubuntu-keyring gpgv
+apt install curl ca-certificates unzip ufw
 
-download ( ppp ) and ( pptp-linux ) packages 
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp
+ufw enable
+ufw status
 
-dpkg -i ( ppp )
-dpkg -i ( pptp-linux )
+curl -LO https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+unzip Xray-linux-64.zip
+cp ./Xray-linux-64/xray /usr/local/bin/
+rm -r ./Xray-linux-64/
+mkdir -p /usr/local/etc/xray/
+touch /usr/local/etc/xray/config.json
 
-vpn_ip='172.16.1.2'
-vpn_user='user2'
-vpn_password='123'
+nano /etc/systemd/system/xray.service :
+
+[Unit]
+Description=xray
+After=network.target nss-lookup.target
+
+[Service]
+User=nobody
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+RuntimeDirectory=xray
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
+
+systemctl daemon-reload
+
+=========================================================================================================================================================================
+
+xray server :
+
+https://archive.ubuntu.com/ubuntu/pool/main/p/ppp/ppp_2.5.2-1+1.2_amd64.deb
+https://archive.ubuntu.com/ubuntu/pool/main/p/pptp-linux/pptp-linux_1.10.0-2build1_amd64.deb
+
+dpkg-query --show --showformat='${Status}' ppp | dpkg -i ppp_2.5.2-1+1.2_amd64.deb
+dpkg-query --show --showformat='${Status}' pptp-linux | dpkg -i pptp-linux_1.10.0-2build1_amd64.deb
+
+apt install dnscrypt-proxy bind9-dnsutils openssl nginx
+apt install --no-install-recommends gpg
+
+nano /etc/ufw/before.rules ( inside the *filter section , before the COMMIT line ) :
+
+-A ufw-before-input -p 47 -s 172.16.1.2 -j ACCEPT
+
+ufw allow 443/tcp
+ufw status
 
 nano /etc/ppp/peers/vpn-2
 
-pty "pptp $vpn_ip --nolaunchpppd"
-name $vpn_user
-password $vpn_password
+pty "pptp 172.16.1.2 --nolaunchpppd"
+name user2
+password 222
 require-mschap-v2
 refuse-mschap
 refuse-chap
@@ -90,10 +117,10 @@ RestartSec=300
 WantedBy=multi-user.target
 
 systemctl daemon-reload
-systemctl enable pptp-vpn-2
+systemctl status pptp-vpn-2
 systemctl start pptp-vpn-2
-
-apt install dnscrypt-proxy bind9-dnsutils
+systemctl status pptp-vpn-2
+systemctl enable pptp-vpn-2
 
 nano /etc/dnscrypt-proxy/dnscrypt-proxy.toml :
 
@@ -127,54 +154,58 @@ systemctl enable dnscrypt-proxy
 
 ss -lntup
 
-dig @127.0.0.1 whoami.cloudflare ch txt
+dig whoami.cloudflare ch txt +short
+dig @127.0.0.1 whoami.cloudflare ch txt +short
+curl https://www.cloudflare.com/ips-v4
 
-apt install ca-certificates curl lsb-release gpg
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out ./internal-ca.key
+certificate_serial=$(openssl rand -hex 16)
+openssl req -new -sha256 -x509 -days 3650 -key ./internal-ca.key -out ./internal-ca.crt -subj "/CN=internal-ca" -set_serial "0x${certificate_serial}" \
+-addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -addext "subjectKeyIdentifier=hash"
+
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out ./xyz.internal.key
+openssl req -new -sha256 -key ./xyz.internal.key -out xyz.internal.csr -subj "/CN=xyz.internal"
+certificate_serial=$(openssl rand -hex 16)
+openssl x509 -req -sha256 -days 3650 -CA ./internal-ca.crt -CAkey ./internal-ca.key -in ./xyz.internal.csr -out ./xyz.internal.crt -addext "subjectAltName=DNS:xyz.internal" \
+-set_serial "0x${certificate_serial}" -addext "basicConstraints=critical,CA:FALSE" -addext "keyUsage=critical,digitalSignature" -addext "subjectKeyIdentifier=hash" \
+-addext "authorityKeyIdentifier=keyid,issuer" -addext "extendedKeyUsage=serverAuth"
+rm ./xyz.internal.csr
+
+openssl verify -CAfile ./internal-ca.crt ./xyz.internal.crt
+cat xyz.internal.crt internal-ca.crt > xyz.internal-fullchain.crt
 
 curl -LO https://nginx.org/keys/nginx_signing.key 
-
 file ./nginx_signing.key
-
 gpg --dearmor --output nginx-archive-keyring.pgp ./nginx_signing.key
-
+rm ./nginx_signing.key
 mv ./nginx-archive-keyring.pgp /etc/apt/keyrings/
 
-chmod 644 /etc/apt/keyrings/nginx-archive-keyring.pgp
-
-ubuntu_version=$(lsb_release -cs)
-
-/etc/apt/sources.list.d/nginx.sources :
+nano /etc/apt/sources.list.d/nginx.sources :
 
 Types: deb
 URIs: https://nginx.org/packages/ubuntu
-Suites: $ubuntu_version
+Suites: resolute
 Components: nginx
 Signed-By: /etc/apt/keyrings/nginx-archive-keyring.pgp
 
-/etc/apt/preferences.d/nginx.pref
+nano /etc/apt/preferences.d/nginx.pref :
 
 Package: *
 Pin: release o=nginx
 Pin-Priority: 900
 
-apt update
-apt install nginx
-
-openssl ecparam -genkey -name prime256v1 -noout -out xyz.com.key
-openssl req -new -x509 -key xyz.com.key -out xyz.com.crt -days 3650 -subj "/CN=xyz.com" -addext "subjectAltName=DNS:xyz.com"
-
-mkdir -p /etc/nginx/tls/xyz.com/
-cp ./xyz.com.key /etc/nginx/tls/xyz.com/xyz.com.key
-cp ./xyz.com.crt /etc/nginx/tls/xyz.com/xyz.com.crt
+mkdir -p /etc/nginx/tls/xyz.internal/
+cp ./xyz.internal.key /etc/nginx/tls/xyz.internal/xyz.internal.key
+cp ./xyz.internal-fullchain.crt /etc/nginx/tls/xyz.internal/xyz.internal-fullchain.crt
 
 nano /etc/nginx/conf.d/default.conf :
 
 server {
     listen 443 ssl;
     http2 on;
-    server_name xyz.com;
-    ssl_certificate /etc/nginx/tls/xyz.com/xyz.com.crt;
-	ssl_certificate_key /etc/nginx/tls/xyz.com/xyz.com.key;
+    server_name xyz.internal;
+    ssl_certificate /etc/nginx/tls/xyz.internal/xyz.internal-fullchain.crt;
+    ssl_certificate_key /etc/nginx/tls/xyz.internal/xyz.internal.key;
     location / {
         root /usr/share/nginx/html;
         index index.html;
@@ -184,17 +215,17 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_read_timeout 3600s;
         proxy_pass http://127.0.0.1:3001;
     }
     location /grpc {
         grpc_set_header Host $host;
-        grpc_set_header X-Forwarded-For $remote_addr;
+        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         client_max_body_size 0;
         grpc_read_timeout 3600s;
-		grpc_pass grpc://127.0.0.1:3002;
-	}
+        grpc_pass grpc://127.0.0.1:3002;
+    }
 }
 
 nginx -t
@@ -206,11 +237,7 @@ ss -lntup
 
 xray uuid
 
-openssl x509 -in /etc/nginx/tls/xyz.com/xyz.com.crt -noout -fingerprint -sha256
-
-config.json ( server ) :
-
-server.json :
+nano /usr/local/etc/xray/config.json :
 
 {
     "inbounds": [
@@ -222,9 +249,10 @@ server.json :
             "settings": {
                 "clients": [
                     {
-                        "id": ""
+                        "id": "d729a747-5af2-454c-9c0d-9c4e297e47ba"
                     }
                 ],
+                "encryption": "none",
                 "decryption": "none"
             },
             "streamSettings": {
@@ -233,9 +261,6 @@ server.json :
                 "wsSettings": {
                     "path": "/websocket"
                 },
-                "sockopt": {
-                    "trustedXForwardedFor": ["X-Forwarded-For"]
-                }
             }
         },
         {
@@ -246,9 +271,10 @@ server.json :
             "settings": {
                 "clients": [
                     {
-                        "id": ""
+                        "id": "1ce51019-1d0f-42bf-bf4a-3e3dae32091a"
                     }
                 ],
+                "encryption": "none",
                 "decryption": "none"
             },
             "streamSettings": {
@@ -257,9 +283,6 @@ server.json :
                 "grpcSettings": {
                     "serviceName": "grpc"
                 },
-                "sockopt": {
-                    "trustedXForwardedFor": ["X-Forwarded-For"]
-                }
             }
         }
     ],
@@ -301,44 +324,72 @@ server.json :
     }
 }
 
+xray run --test --config /usr/local/etc/xray/config.json
 
-config.json ( client ) :
+systemctl status xray 
+systemctl start xray
+systemctl status xray 
+systemctl enable xray
+
+ss -lntup
+
+=========================================================================================================================================================================
+
+xray client :
+
+ufw allow 8081/tcp
+ufw allow 8082/tcp
+ufw enable
+ufw status
+
+nano /etc/hosts : 172.16.1.2 xyz.internal
+getent ahostsv4 xyz.internal
+ping xyz.internal
+
+cp internal-ca.crt /usr/local/share/ca-certificates/
+update-ca-certificates
+
+curl https://xyz.internal/index.html
+
+/usr/local/etc/xray/config.json :
 
 {
     "inbounds": [
         {
-            "tag": "websocket-socks-inbound",
-            "protocol": "socks",
-            "listen": "172.16.1.2",
-            "port": "1081",
-            "settings": {
-                "auth": "noauth",
-                "udp": true,
-                "ip": "172.16.1.2"
-            }
-        },
-        {
             "tag": "websocket-http-inbound",
             "protocol": "http",
-            "listen": "172.16.1.2",
-            "port": "8081"
-        },
-        {
-            "tag": "grpc-socks-inbound",
-            "protocol": "socks",
-            "listen": "172.16.1.2",
-            "port": "1082",
+            "port": "8081",
             "settings": {
-                "auth": "noauth",
-                "udp": true,
-                "ip": "172.16.1.2"
-            }
+                "accounts": [
+                    {
+                        "user": "user1",
+                        "pass": "111"
+                    },
+                    {
+                        "user": "user2",
+                        "pass": "222"
+                    }
+                ],
+                "allowTransparent": false
+            },
         },
         {
             "tag": "grpc-http-inbound",
             "protocol": "http",
-            "listen": "172.16.1.2",
-            "port": "8082"
+            "port": "8082",
+            "settings": {
+                "accounts": [
+                    {
+                        "user": "user1",
+                        "pass": "111"
+                    },
+                    {
+                        "user": "user2",
+                        "pass": "222"
+                    }
+                ],
+                "allowTransparent": false
+            },
         }
     ] ,
     "outbounds": [
@@ -346,10 +397,11 @@ config.json ( client ) :
             "tag": "vless-websocket-outbound",
             "protocol": "vless",
             "settings": {
-                "address": "xyz.com",
+                "address": "xyz.internal",
                 "port": 443,
-                "id": "", 
-                "encryption": "none"
+                "id": "d729a747-5af2-454c-9c0d-9c4e297e47ba", 
+                "encryption": "none",
+                "decryption": "none"
             },
             "streamSettings": {
                 "method": "websocket",
@@ -358,9 +410,8 @@ config.json ( client ) :
                 },
                 "security": "tls",
                 "tlsSettings": {
-                    "serverName": "xyz.com",
+                    "serverName": "xyz.internal",
                     "fingerprint": "chrome",
-                    "pinnedPeerCertSha256": "",
                     "alpn": ["http/1.1"]
                 }
             }
@@ -369,10 +420,11 @@ config.json ( client ) :
             "tag": "vless-grpc-outbound",
             "protocol": "vless",
             "settings": {
-                "address": "xyz.com",
+                "address": "xyz.internal",
                 "port": 443,
-                "id": "",
-                "encryption": "none"
+                "id": "1ce51019-1d0f-42bf-bf4a-3e3dae32091a",
+                "encryption": "none",
+                "decryption": "none"
             },
             "streamSettings": {
                 "method": "grpc",
@@ -381,9 +433,8 @@ config.json ( client ) :
                 },
                 "security": "tls",
                 "tlsSettings": {
-                    "serverName": "xyz.com",
-                    "fingerprint": "chrome",
-                    "pinnedPeerCertSha256": ""
+                    "serverName": "xyz.internal",
+                    "fingerprint": "chrome"
                 }
             }
         }
@@ -394,14 +445,12 @@ config.json ( client ) :
             {
                 "outboundTag": "vless-websocket-outbound",
                 "inboundTag": [
-                    "websocket-socks-inbound" ,
                     "websocket-http-inbound"
                 ]
             },
             {
                 "outboundTag": "vless-grpc-outbound",
                 "inboundTag": [
-                    "grpc-socks-inbound",
                     "grpc-http-inbound"
                 ]
             }
@@ -409,46 +458,16 @@ config.json ( client ) :
     }
 }
 
-apt install curl ca-certificates unzip
-curl -LO https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
-unzip Xray-linux-64.zip
+xray run --test --config /usr/local/etc/xray/config.json
 
-./xray run --test --config ./config.json
-
-cp ./xray /usr/local/bin/
-mkdir -p /usr/local/etc/xray/
-cp config.json /usr/local/etc/xray/
-
-nano /etc/systemd/system/xray.service :
-
-[Unit]
-Description=xray
-After=network.target nss-lookup.target
-
-[Service]
-User=nobody
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
-ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
-Restart=on-failure
-RestartPreventExitStatus=23
-LimitNPROC=10000
-LimitNOFILE=1000000
-RuntimeDirectory=xray
-RuntimeDirectoryMode=0755
-
-[Install]
-WantedBy=multi-user.target
-
-systemctl daemon-reload
-systemctl start xray
-systemctl enable xray
 systemctl status xray 
+systemctl start xray
+systemctl status xray 
+systemctl enable xray
 
 ss -lntup
 
-curl -v -x socks5h://172.16.1.2:1081 https://api.ipify.org
-curl -v -x socks5h://172.16.1.2:1082 https://api.ipify.org
-curl -v -x http://172.16.1.2:8081 https://api.ipify.org
-curl -v -x http://172.16.1.2:8082 https://api.ipify.org
+curl -v -x http://user1:111@127.0.0.1:8081 https://api.ipify.org
+curl -v -x http://user2:222@127.0.0.1:8082 https://api.ipify.org
+
+=========================================================================================================================================================================
