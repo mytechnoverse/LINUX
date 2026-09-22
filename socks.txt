@@ -226,6 +226,13 @@ server {
         grpc_read_timeout 3600s;
         grpc_pass grpc://127.0.0.1:3002;
     }
+    location /xhttp {
+        grpc_set_header Host $host;
+        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        client_max_body_size 0;
+        grpc_read_timeout 3600s;
+        grpc_pass grpc://127.0.0.1:3003;
+    }
 }
 
 nginx -t
@@ -244,10 +251,10 @@ nano /usr/local/etc/xray/config.json :
         {
             "tag": "vless-websocket-inbound",
             "listen": "127.0.0.1",
-            "port": 3001,
+            "port": 3001 ,
             "protocol": "vless",
             "settings": {
-                "clients": [
+                "users": [
                     {
                         "id": "d729a747-5af2-454c-9c0d-9c4e297e47ba"
                     }
@@ -260,16 +267,16 @@ nano /usr/local/etc/xray/config.json :
                 "security": "none",
                 "wsSettings": {
                     "path": "/websocket"
-                },
+                }
             }
         },
         {
             "tag": "vless-grpc-inbound",
             "listen": "127.0.0.1",
-            "port": 3002,
+            "port": 3002 ,
             "protocol": "vless",
             "settings": {
-                "clients": [
+                "users": [
                     {
                         "id": "1ce51019-1d0f-42bf-bf4a-3e3dae32091a"
                     }
@@ -282,7 +289,30 @@ nano /usr/local/etc/xray/config.json :
                 "security": "none",
                 "grpcSettings": {
                     "serviceName": "grpc"
-                },
+                }
+            }
+        },
+        {
+            "tag": "vless-xhttp-inbound",
+            "listen": "127.0.0.1",
+            "port": 3003 ,
+            "protocol": "vless",
+            "settings": {
+                "users": [
+                    {
+                        "id": "bf88b705-c633-4f78-b189-2c5f65c5c7c4"
+                    }
+                ],
+                "encryption": "none",
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "method": "xhttp",
+                "security": "none",
+                "xhttpSettings": {
+                    "path": "/xhttp",
+                    "mode": "stream-one"
+                }
             }
         }
     ],
@@ -317,7 +347,8 @@ nano /usr/local/etc/xray/config.json :
                 "outboundTag": "direct",
                 "inboundTag": [
                     "vless-websocket-inbound",
-                    "vless-grpc-inbound"
+                    "vless-grpc-inbound",
+                    "vless-xhttp-inbound"
                 ]
             }
         ]
@@ -339,6 +370,7 @@ xray client :
 
 ufw allow 8081/tcp
 ufw allow 8082/tcp
+ufw allow 8083/tcp
 ufw enable
 ufw status
 
@@ -360,7 +392,8 @@ curl https://xyz.internal/index.html
             "protocol": "http",
             "port": "8081",
             "settings": {
-                "accounts": [
+                "allowTransparent": false ,
+                "users": [
                     {
                         "user": "user1",
                         "pass": "111"
@@ -369,16 +402,16 @@ curl https://xyz.internal/index.html
                         "user": "user2",
                         "pass": "222"
                     }
-                ],
-                "allowTransparent": false
-            },
+                ]
+            }
         },
         {
             "tag": "grpc-http-inbound",
             "protocol": "http",
             "port": "8082",
             "settings": {
-                "accounts": [
+                "allowTransparent": false ,
+                "users": [
                     {
                         "user": "user1",
                         "pass": "111"
@@ -387,10 +420,27 @@ curl https://xyz.internal/index.html
                         "user": "user2",
                         "pass": "222"
                     }
-                ],
-                "allowTransparent": false
-            },
-        }
+                ]
+            }
+        },
+        {
+            "tag": "xhttp-http-inbound",
+            "protocol": "http",
+            "port": "8083",
+            "settings": {
+                "allowTransparent": false ,
+                "users": [
+                    {
+                        "user": "user1",
+                        "pass": "111"
+                    },
+                    {
+                        "user": "user2",
+                        "pass": "222"
+                    }
+                ]
+            }
+        },
     ] ,
     "outbounds": [
         {
@@ -400,8 +450,7 @@ curl https://xyz.internal/index.html
                 "address": "xyz.internal",
                 "port": 443,
                 "id": "d729a747-5af2-454c-9c0d-9c4e297e47ba", 
-                "encryption": "none",
-                "decryption": "none"
+                "encryption": "none"
             },
             "streamSettings": {
                 "method": "websocket",
@@ -412,7 +461,7 @@ curl https://xyz.internal/index.html
                 "tlsSettings": {
                     "serverName": "xyz.internal",
                     "fingerprint": "chrome",
-                    "alpn": ["http/1.1"]
+                    "alpn": [ "http/1.1" ]
                 }
             }
         },
@@ -423,8 +472,7 @@ curl https://xyz.internal/index.html
                 "address": "xyz.internal",
                 "port": 443,
                 "id": "1ce51019-1d0f-42bf-bf4a-3e3dae32091a",
-                "encryption": "none",
-                "decryption": "none"
+                "encryption": "none"
             },
             "streamSettings": {
                 "method": "grpc",
@@ -435,6 +483,29 @@ curl https://xyz.internal/index.html
                 "tlsSettings": {
                     "serverName": "xyz.internal",
                     "fingerprint": "chrome"
+                }
+            }
+        },
+        {
+            "tag": "vless-xhttp-outbound",
+            "protocol": "vless",
+            "settings": {
+                "address": "xyz.internal",
+                "port": 443,
+                "id": "bf88b705-c633-4f78-b189-2c5f65c5c7c4",
+                "encryption": "none"
+            },
+            "streamSettings": {
+                "method": "xhttp",
+                "xhttpSettings": {
+                    "path": "/xhttp",
+                    "mode": "stream-one"
+                },
+                "security": "tls",
+                "tlsSettings": {
+                    "serverName": "xyz.internal",
+                    "fingerprint": "chrome",
+                    "alpn": [ "h2" ]
                 }
             }
         }
@@ -453,6 +524,12 @@ curl https://xyz.internal/index.html
                 "inboundTag": [
                     "grpc-http-inbound"
                 ]
+            },
+            {
+                "outboundTag": "vless-xhttp-outbound",
+                "inboundTag": [
+                    "xhttp-http-inbound"
+                ]
             }
         ]
     }
@@ -468,6 +545,7 @@ systemctl enable xray
 ss -lntup
 
 curl -v -x http://user1:111@127.0.0.1:8081 https://api.ipify.org
-curl -v -x http://user2:222@127.0.0.1:8082 https://api.ipify.org
+curl -v -x http://user1:111@127.0.0.1:8082 https://api.ipify.org
+curl -v -x http://user1:111@127.0.0.1:8082 https://api.ipify.org
 
 =========================================================================================================================================================================
