@@ -4,85 +4,19 @@ https://xtls.github.io/llms-full.txt
 https://security.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb
 https://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1build1_all.deb
 https://security.ubuntu.com/ubuntu/pool/main/g/gnupg2/gpgv_2.4.8-4ubuntu3.1_amd64.deb
-
-dpkg-query --show --showformat='${Status}' ca-certificates | dpkg -i ca-certificates_20260601~26.04.1_all.deb
-dpkg-query --show --showformat='${Status}' gpgv | dpkg -i gpgv_2.4.8-4ubuntu3.1_amd64.deb
-dpkg-query --show --showformat='${Status}' ubuntu-keyring | dpkg -i ubuntu-keyring_2023.11.28.1build1_all.deb
-
-/etc/apt/sources.list.d/ubuntu.sources :
-
-Types: deb
-URIs: https://archive.ubuntu.com/ubuntu/
-Suites: resolute resolute-updates
-Components: main universe
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-
-Types: deb
-URIs: https://security.ubuntu.com/ubuntu/
-Suites: resolute-security
-Components: main universe
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-
-apt update
-
-apt install curl ca-certificates unzip ufw
-
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp
-ufw enable
-ufw status
-
-curl -LO https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
-unzip Xray-linux-64.zip
-cp ./Xray-linux-64/xray /usr/local/bin/
-rm -r ./Xray-linux-64/
-mkdir -p /usr/local/etc/xray/
-touch /usr/local/etc/xray/config.json
-
-nano /etc/systemd/system/xray.service :
-
-[Unit]
-Description=xray
-After=network.target nss-lookup.target
-
-[Service]
-User=nobody
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
-ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
-Restart=on-failure
-RestartPreventExitStatus=23
-LimitNPROC=10000
-LimitNOFILE=1000000
-RuntimeDirectory=xray
-RuntimeDirectoryMode=0755
-
-[Install]
-WantedBy=multi-user.target
-
-systemctl daemon-reload
+https://archive.ubuntu.com/ubuntu/pool/main/p/ppp/ppp_2.5.2-1+1.2_amd64.deb
+https://archive.ubuntu.com/ubuntu/pool/main/p/pptp-linux/pptp-linux_1.10.0-2build1_amd64.deb
 
 =========================================================================================================================================================================
 
-xray server :
-
-https://archive.ubuntu.com/ubuntu/pool/main/p/ppp/ppp_2.5.2-1+1.2_amd64.deb
-https://archive.ubuntu.com/ubuntu/pool/main/p/pptp-linux/pptp-linux_1.10.0-2build1_amd64.deb
+xray server only :
 
 dpkg-query --show --showformat='${Status}' ppp | dpkg -i ppp_2.5.2-1+1.2_amd64.deb
 dpkg-query --show --showformat='${Status}' pptp-linux | dpkg -i pptp-linux_1.10.0-2build1_amd64.deb
 
-apt install dnscrypt-proxy bind9-dnsutils openssl nginx
-apt install --no-install-recommends gpg
-
 nano /etc/ufw/before.rules ( inside the *filter section , before the COMMIT line ) :
 
 -A ufw-before-input -p 47 -s 172.16.1.2 -j ACCEPT
-
-ufw allow 443/tcp
-ufw status
 
 nano /etc/ppp/peers/vpn-2
 
@@ -122,6 +56,82 @@ systemctl start pptp-vpn-2
 systemctl status pptp-vpn-2
 systemctl enable pptp-vpn-2
 
+=========================================================================================================================================================================
+
+xray server and client :
+
+dpkg-query --show --showformat='${Status}' ca-certificates | dpkg -i ca-certificates_20260601~26.04.1_all.deb
+dpkg-query --show --showformat='${Status}' gpgv | dpkg -i gpgv_2.4.8-4ubuntu3.1_amd64.deb
+dpkg-query --show --showformat='${Status}' ubuntu-keyring | dpkg -i ubuntu-keyring_2023.11.28.1build1_all.deb
+
+/etc/apt/sources.list.d/ubuntu.sources :
+
+Types: deb
+URIs: https://archive.ubuntu.com/ubuntu/
+Suites: resolute resolute-updates
+Components: main universe
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: https://security.ubuntu.com/ubuntu/
+Suites: resolute-security
+Components: main universe
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+apt update
+
+apt install curl ca-certificates unzip ufw
+
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp
+ufw enable
+ufw status
+
+curl -LO https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+
+mkdir Xray-linux-64
+unzip Xray-linux-64.zip --directory Xray-linux-64
+cp ./Xray-linux-64/xray /usr/local/bin/
+rm -r ./Xray-linux-64/
+
+mkdir -p /usr/local/etc/xray/
+touch /usr/local/etc/xray/config.json
+
+nano /etc/systemd/system/xray.service :
+
+[Unit]
+Description=xray
+After=network.target nss-lookup.target
+
+[Service]
+User=nobody
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+RuntimeDirectory=xray
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
+
+systemctl daemon-reload
+
+=========================================================================================================================================================================
+
+xray server :
+
+apt install dnscrypt-proxy bind9-dnsutils openssl
+apt install --no-install-recommends gpg
+
+ufw allow 443/tcp
+ufw status
+
 nano /etc/dnscrypt-proxy/dnscrypt-proxy.toml :
 
 server_names = ['cloudflare']
@@ -138,10 +148,8 @@ cache = true
 cache_size = 4096
 
 dnscrypt-proxy -check -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml
-dnscrypt-proxy -resolve google.com
 
 mkdir -p /etc/systemd/system/dnscrypt-proxy.service.d/
-
 nano /etc/systemd/system/dnscrypt-proxy.service.d/override.conf :
 
 [Service]
@@ -151,6 +159,8 @@ systemctl daemon-reload
 systemctl restart dnscrypt-proxy
 systemctl status dnscrypt-proxy
 systemctl enable dnscrypt-proxy
+
+dnscrypt-proxy -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml -resolve google.com
 
 ss -lntup
 
@@ -166,9 +176,19 @@ openssl req -new -sha256 -x509 -days 3650 -key ./internal-ca.key -out ./internal
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out ./xyz.internal.key
 openssl req -new -sha256 -key ./xyz.internal.key -out xyz.internal.csr -subj "/CN=xyz.internal"
 certificate_serial=$(openssl rand -hex 16)
-openssl x509 -req -sha256 -days 3650 -CA ./internal-ca.crt -CAkey ./internal-ca.key -in ./xyz.internal.csr -out ./xyz.internal.crt -addext "subjectAltName=DNS:xyz.internal" \
--set_serial "0x${certificate_serial}" -addext "basicConstraints=critical,CA:FALSE" -addext "keyUsage=critical,digitalSignature" -addext "subjectKeyIdentifier=hash" \
--addext "authorityKeyIdentifier=keyid,issuer" -addext "extendedKeyUsage=serverAuth"
+
+cert_extensions=$(cat <<EOF
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+extendedKeyUsage=serverAuth
+subjectAltName=DNS:xyz.internal
+EOF
+)
+
+openssl x509 -req -sha256 -days 3650 -CA ./internal-ca.crt -CAkey ./internal-ca.key -in ./xyz.internal.csr -out ./xyz.internal.crt -set_serial "0x${certificate_serial}" -extfile <(printf '%s' "$cert_extensions")
+
 rm ./xyz.internal.csr
 
 openssl verify -CAfile ./internal-ca.crt ./xyz.internal.crt
@@ -193,6 +213,14 @@ nano /etc/apt/preferences.d/nginx.pref :
 Package: *
 Pin: release o=nginx
 Pin-Priority: 900
+
+dpkg-query --show --showformat='${Status}' | {
+    apt purge nginx
+    apt autoremove --purge
+}
+
+apt update
+apt install nginx
 
 mkdir -p /etc/nginx/tls/xyz.internal/
 cp ./xyz.internal.key /etc/nginx/tls/xyz.internal/xyz.internal.key
