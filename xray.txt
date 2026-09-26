@@ -1,15 +1,8 @@
 
-https://xtls.github.io/llms-full.txt
+====== PPTP Setup :
 
-https://security.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb
-https://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1build1_all.deb
-https://security.ubuntu.com/ubuntu/pool/main/g/gnupg2/gpgv_2.4.8-4ubuntu3.1_amd64.deb
 https://archive.ubuntu.com/ubuntu/pool/main/p/ppp/ppp_2.5.2-1+1.2_amd64.deb
 https://archive.ubuntu.com/ubuntu/pool/main/p/pptp-linux/pptp-linux_1.10.0-2build1_amd64.deb
-
-=========================================================================================================================================================================
-
-xray server only :
 
 dpkg-query --show --showformat='${Status}' ppp | dpkg -i ppp_2.5.2-1+1.2_amd64.deb
 dpkg-query --show --showformat='${Status}' pptp-linux | dpkg -i pptp-linux_1.10.0-2build1_amd64.deb
@@ -58,13 +51,9 @@ systemctl enable pptp-vpn-2
 
 =========================================================================================================================================================================
 
-xray server and client :
+====== Ubuntu Setup :
 
-dpkg-query --show --showformat='${Status}' ca-certificates | dpkg -i ca-certificates_20260601~26.04.1_all.deb
-dpkg-query --show --showformat='${Status}' gpgv | dpkg -i gpgv_2.4.8-4ubuntu3.1_amd64.deb
-dpkg-query --show --showformat='${Status}' ubuntu-keyring | dpkg -i ubuntu-keyring_2023.11.28.1build1_all.deb
-
-/etc/apt/sources.list.d/ubuntu.sources :
+nano /etc/apt/sources.list.d/ubuntu.sources :
 
 Types: deb
 URIs: https://archive.ubuntu.com/ubuntu/
@@ -79,8 +68,7 @@ Components: main universe
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
 apt update
-
-apt install curl ca-certificates unzip ufw
+apt upgrade
 
 ufw default deny incoming
 ufw default allow outgoing
@@ -88,92 +76,9 @@ ufw allow 22/tcp
 ufw enable
 ufw status
 
-curl -LO https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
-
-mkdir Xray-linux-64
-unzip Xray-linux-64.zip -d Xray-linux-64
-cp ./Xray-linux-64/xray /usr/local/bin/
-rm -r ./Xray-linux-64/
-
-mkdir -p /usr/local/etc/xray/
-
-touch /var/log/xray/access.log
-touch /var/log/xray/error.log
-
-chmod a+w /var/log/xray/access.log
-chmod a+w /var/log/xray/error.log
-
-touch /usr/local/etc/xray/config.json
-
-nano /etc/systemd/system/xray.service :
-
-[Unit]
-Description=xray
-After=network.target nss-lookup.target
-
-[Service]
-User=nobody
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
-ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
-Restart=on-failure
-RestartPreventExitStatus=23
-LimitNPROC=10000
-LimitNOFILE=1000000
-RuntimeDirectory=xray
-RuntimeDirectoryMode=0755
-
-[Install]
-WantedBy=multi-user.target
-
-systemctl daemon-reload
-
 =========================================================================================================================================================================
 
-xray server :
-
-apt install dnscrypt-proxy bind9-dnsutils openssl
-apt install --no-install-recommends gpg
-
-ufw allow 443/tcp
-ufw status
-
-nano /etc/dnscrypt-proxy/dnscrypt-proxy.toml :
-
-server_names = ['cloudflare']
-listen_addresses = ['127.0.0.1:53']
-ipv4_servers = true
-doh_servers = true
-require_dnssec = true
-require_nofilter = true
-ignore_system_dns = true
-ipv6_servers = false
-dnscrypt_servers = false
-odoh_servers = false
-cache = true
-cache_size = 4096
-
-dnscrypt-proxy -check -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml
-
-mkdir -p /etc/systemd/system/dnscrypt-proxy.service.d/
-nano /etc/systemd/system/dnscrypt-proxy.service.d/override.conf :
-
-[Service]
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-
-systemctl daemon-reload
-systemctl restart dnscrypt-proxy
-systemctl status dnscrypt-proxy
-systemctl enable dnscrypt-proxy
-
-dnscrypt-proxy -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml -resolve google.com
-
-ss -lntup
-
-dig whoami.cloudflare ch txt +short
-dig @127.0.0.1 whoami.cloudflare ch txt +short
-curl https://www.cloudflare.com/ips-v4
+====== TLS Setup :
 
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out ./internal-ca.key
 certificate_serial=$(openssl rand -hex 16)
@@ -195,11 +100,193 @@ EOF
 )
 
 openssl x509 -req -sha256 -days 3650 -CA ./internal-ca.crt -CAkey ./internal-ca.key -in ./xyz.internal.csr -out ./xyz.internal.crt -set_serial "0x${certificate_serial}" -extfile <(printf '%s' "$cert_extensions")
-
 rm ./xyz.internal.csr
 
 openssl verify -CAfile ./internal-ca.crt ./xyz.internal.crt
 cat xyz.internal.crt internal-ca.crt > xyz.internal-fullchain.crt
+
+=========================================================================================================================================================================
+
+====== Xray Install :
+
+apt install curl ca-certificates unzip ufw
+
+curl -LO https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+
+mkdir Xray-linux-64
+unzip Xray-linux-64.zip -d Xray-linux-64
+cp ./Xray-linux-64/xray /usr/local/bin/
+rm -r ./Xray-linux-64/
+
+mkdir -p /var/log/xray/
+
+touch /var/log/xray/access.log
+chown nobody:nogroup /var/log/xray/access.log
+chmod 600 /var/log/xray/access.log
+
+touch /var/log/xray/error.log
+chown nobody:nogroup /var/log/xray/error.log
+chmod 600 /var/log/xray/error.log
+
+mkdir -p /usr/local/etc/xray/conf.d/
+
+nano /usr/local/etc/xray/conf.d/log.json :
+
+{
+    "log": {
+        "loglevel": "warning",
+        "access": "/var/log/xray/access.log",
+        "error": "/var/log/xray/error.log"
+    }
+}
+
+mkdir -p /usr/local/etc/xray/transports/
+
+nano /etc/systemd/system/xray.service :
+
+[Unit]
+Description=xray
+After=network.target nss-lookup.target
+
+[Service]
+User=nobody
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run --confdir /usr/local/etc/xray/conf.d/
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+RuntimeDirectory=xray
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
+
+systemctl daemon-reload
+
+=========================================================================================================================================================================
+
+====== Xray Server :
+
+apt install dnscrypt-proxy bind9-dnsutils openssl
+apt install --no-install-recommends gpg
+
+ufw allow 443/tcp
+ufw status
+
+nano /etc/dnscrypt-proxy/dnscrypt-proxy.toml :
+
+server_names = ['cloudflare']
+listen_addresses = ['127.0.0.1:53']
+ipv4_servers = true
+doh_servers = true
+require_dnssec = true
+require_nofilter = true
+ignore_system_dns = true
+ipv6_servers = false
+dnscrypt_servers = false
+odoh_servers = false
+block_ipv6 = true
+cache = true
+cache_size = 4096
+
+dnscrypt-proxy -check -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+
+mkdir -p /etc/systemd/system/dnscrypt-proxy.service.d/
+nano /etc/systemd/system/dnscrypt-proxy.service.d/override.conf :
+
+[Service]
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+systemctl daemon-reload
+systemctl restart dnscrypt-proxy
+systemctl status dnscrypt-proxy
+systemctl enable dnscrypt-proxy
+
+dnscrypt-proxy -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml -resolve google.com
+
+ss -lntup
+
+dig @127.0.0.1 whoami.cloudflare ch txt +short
+
+mkdir -p /usr/local/etc/xray/nginx/
+
+nano /usr/local/etc/xray/nginx/xray-websocket.conf :
+
+location = /xray/websocket {
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_pass http://127.0.0.1:3000;
+}
+
+nano /usr/local/etc/xray/nginx/xray-httpupgrade.conf :
+
+location = /xray/httpupgrade {
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_pass http://127.0.0.1:3000;
+}
+
+nano /usr/local/etc/xray/nginx/xray-grpc.conf :
+
+location /xray/grpc/ {
+    grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    client_max_body_size 0;
+    client_body_timeout 3600s;
+    grpc_read_timeout 3600s;
+    grpc_send_timeout 3600s;
+    grpc_pass grpc://127.0.0.1:3000;
+}
+
+nano /usr/local/etc/xray/nginx/xray-xhttp-stream-one.conf :
+
+location /xray/xhttp-stream-one/ {
+    grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    client_max_body_size 0;
+    client_body_timeout 3600s;
+    grpc_read_timeout 3600s;
+    grpc_send_timeout 3600s;
+    grpc_pass grpc://127.0.0.1:3000;
+}
+
+nano /usr/local/etc/xray/nginx/xray-xhttp-stream-up.conf :
+
+location /xray/xhttp-stream-up/ {
+    grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    client_max_body_size 0;
+    client_body_timeout 3600s;
+    grpc_read_timeout 3600s;
+    grpc_send_timeout 3600s;
+    grpc_pass grpc://127.0.0.1:3000;
+}
+
+nano /usr/local/etc/xray/nginx/xray-xhttp-packet-up.conf :
+
+location /xray/xhttp-packet-up/ {
+    grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    client_max_body_size 0;
+    client_body_timeout 3600s;
+    grpc_read_timeout 3600s;
+    grpc_send_timeout 3600s;
+    grpc_pass grpc://127.0.0.1:3000;
+}
 
 curl -LO https://nginx.org/keys/nginx_signing.key 
 file ./nginx_signing.key
@@ -228,86 +315,31 @@ apt autoremove --purge
 apt update
 apt install nginx
 
-mkdir -p /etc/nginx/tls/xyz.internal/
-cp ./xyz.internal.key /etc/nginx/tls/xyz.internal/xyz.internal.key
-cp ./xyz.internal-fullchain.crt /etc/nginx/tls/xyz.internal/xyz.internal-fullchain.crt
+rm -f /etc/nginx/conf.d/default.conf
 
-nano /etc/nginx/conf.d/default.conf :
+mkdir -p /etc/nginx/xyz.internal/tls/
+cp ./xyz.internal.key /etc/nginx/xyz.internal/tls/xyz.internal.key
+cp ./xyz.internal-fullchain.crt /etc/nginx/xyz.internal/tls/xyz.internal-fullchain.crt
+
+nano /etc/nginx/conf.d/xyz.internal.conf :
 
 server {
     listen 443 ssl;
     http2 on;
     server_name xyz.internal;
-    ssl_certificate /etc/nginx/tls/xyz.internal/xyz.internal-fullchain.crt;
-    ssl_certificate_key /etc/nginx/tls/xyz.internal/xyz.internal.key;
+    ssl_certificate /etc/nginx/xyz.internal/tls/xyz.internal-fullchain.crt;
+    ssl_certificate_key /etc/nginx/xyz.internal/tls/xyz.internal.key;
     ssl_protocols TLSv1.2 TLSv1.3;
     location / {
         root /usr/share/nginx/html;
         index index.html;
     }
-    location = /xray/websocket {
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_pass http://127.0.0.1:3001;
-    }
-    location = /xray/httpupgrade {
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_pass http://127.0.0.1:3002;
-    }
-    location /xray/grpc/ {
-        grpc_set_header X-Real-IP $remote_addr;
-        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        client_max_body_size 0;
-        client_body_timeout 3600s;
-        grpc_read_timeout 3600s;
-        grpc_send_timeout 3600s;
-        grpc_pass grpc://127.0.0.1:3003;
-    }
-    location /xray/xhttp-stream-one/ {
-        grpc_set_header X-Real-IP $remote_addr;
-        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        client_max_body_size 0;
-        client_body_timeout 3600s;
-        grpc_read_timeout 3600s;
-        grpc_send_timeout 3600s;
-        grpc_pass grpc://127.0.0.1:3004;
-    }
-    location /xray/xhttp-stream-up/ {
-        grpc_set_header X-Real-IP $remote_addr;
-        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        client_max_body_size 0;
-        client_body_timeout 3600s;
-        grpc_read_timeout 3600s;
-        grpc_send_timeout 3600s;
-        grpc_pass grpc://127.0.0.1:3005;
-    }
-    location /xray/xhttp-packet-up/ {
-        grpc_set_header X-Real-IP $remote_addr;
-        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        client_max_body_size 0;
-        client_body_timeout 3600s;
-        grpc_read_timeout 3600s;
-        grpc_send_timeout 3600s;
-        grpc_pass grpc://127.0.0.1:3006;
-    }
+    include /etc/nginx/xyz.internal/conf.d/*.conf;
 }
+
+mkdir -p /etc/nginx/xyz.internal/conf.d/
+
+cp /usr/local/etc/xray/nginx/xray-websocket.conf /etc/nginx/xyz.internal/conf.d/
 
 nginx -t
 
@@ -318,24 +350,18 @@ ss -lntup
 
 xray uuid
 
-nano /usr/local/etc/xray/config.json :
+nano /usr/local/etc/xray/transports/inbound-websocket.json :
 
 {
-    "log": {
-        "loglevel": "warning",
-        "access": "/var/log/xray/access.log",
-        "error": "/var/log/xray/error.log"
-    },
     "inbounds": [
         {
-            "tag": "vless-websocket-inbound",
             "listen": "127.0.0.1",
-            "port": 3001 ,
+            "port": 3000 ,
             "protocol": "vless",
             "settings": {
                 "clients": [
                     {
-                        "id": "d729a747-5af2-454c-9c0d-9c4e297e47ba"
+                        "id": ""
                     }
                 ],
                 "decryption": "none"
@@ -345,18 +371,29 @@ nano /usr/local/etc/xray/config.json :
                 "security": "none",
                 "wsSettings": {
                     "path": "/xray/websocket"
+                },
+                "sockopt": {
+                    "trustedXForwardedFor": [
+                        "127.0.0.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/inbound-httpupgrade.json :
+
+{
+    "inbounds": [
         {
-            "tag": "vless-httpupgrade-inbound",
             "listen": "127.0.0.1",
-            "port": 3002 ,
+            "port": 3000 ,
             "protocol": "vless",
             "settings": {
                 "clients": [
                     {
-                        "id": "706b1a6f-dacb-4f6b-a6e2-76741f0cd62d"
+                        "id": ""
                     }
                 ],
                 "decryption": "none"
@@ -366,18 +403,29 @@ nano /usr/local/etc/xray/config.json :
                 "security": "none",
                 "httpupgradeSettings": {
                     "path": "/xray/httpupgrade"
+                },
+                "sockopt": {
+                    "trustedXForwardedFor": [
+                        "127.0.0.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/inbound-grpc.json :
+
+{
+    "inbounds": [
         {
-            "tag": "vless-grpc-inbound",
             "listen": "127.0.0.1",
-            "port": 3003 ,
+            "port": 3000 ,
             "protocol": "vless",
             "settings": {
                 "clients": [
                     {
-                        "id": "1ce51019-1d0f-42bf-bf4a-3e3dae32091a"
+                        "id": ""
                     }
                 ],
                 "decryption": "none"
@@ -387,18 +435,29 @@ nano /usr/local/etc/xray/config.json :
                 "security": "none",
                 "grpcSettings": {
                     "serviceName": "xray/grpc"
+                },
+                "sockopt": {
+                    "trustedXForwardedFor": [
+                        "127.0.0.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/inbound-xhttp-stream-one.json :
+
+{
+    "inbounds": [
         {
-            "tag": "vless-xhttp-stream-one-inbound",
             "listen": "127.0.0.1",
-            "port": 3004 ,
+            "port": 3000 ,
             "protocol": "vless",
             "settings": {
                 "clients": [
                     {
-                        "id": "bf88b705-c633-4f78-b189-2c5f65c5c7c4"
+                        "id": ""
                     }
                 ],
                 "decryption": "none"
@@ -409,18 +468,29 @@ nano /usr/local/etc/xray/config.json :
                 "xhttpSettings": {
                     "path": "/xray/xhttp-stream-one",
                     "mode": "stream-one"
+                },
+                "sockopt": {
+                    "trustedXForwardedFor": [
+                        "127.0.0.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/inbound-xhttp-stream-up.json :
+
+{
+    "inbounds": [
         {
-            "tag": "vless-xhttp-stream-up-inbound",
             "listen": "127.0.0.1",
-            "port": 3005 ,
+            "port": 3000 ,
             "protocol": "vless",
             "settings": {
                 "clients": [
                     {
-                        "id": "848cae9e-4b8c-44d5-9fc5-0bdcc3044d78"
+                        "id": ""
                     }
                 ],
                 "decryption": "none"
@@ -431,18 +501,29 @@ nano /usr/local/etc/xray/config.json :
                 "xhttpSettings": {
                     "path": "/xray/xhttp-stream-up",
                     "mode": "stream-up"
+                },
+                "sockopt": {
+                    "trustedXForwardedFor": [
+                        "127.0.0.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/inbound-xhttp-packet-up.json :
+
+{
+    "inbounds": [
         {
-            "tag": "vless-xhttp-packet-up-inbound",
             "listen": "127.0.0.1",
-            "port": 3006 ,
+            "port": 3000 ,
             "protocol": "vless",
             "settings": {
                 "clients": [
                     {
-                        "id": "5b4d4479-6a07-4ed6-86f5-d63beeaf0c01"
+                        "id": ""
                     }
                 ],
                 "decryption": "none"
@@ -453,53 +534,47 @@ nano /usr/local/etc/xray/config.json :
                 "xhttpSettings": {
                     "path": "/xray/xhttp-packet-up",
                     "mode": "packet-up"
+                },
+                "sockopt": {
+                    "trustedXForwardedFor": [
+                        "127.0.0.1"
+                    ]
+                }
+            }
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/conf.d/server-outbound.json :
+
+{
+    "dns": {
+        "disableCache": true ,
+        "servers": [
+            {
+                "address": "127.0.0.1",
+                "port": 53
+            }
+        ]
+    },
+    "outbounds": [
+        {
+            "protocol": "freedom",
+            "streamSettings": {
+                "sockopt": {
+                    "domainStrategy": "UseIP"
                 }
             }
         }
     ],
-    "outbounds": [
-        {
-            "tag": "direct",
-            "protocol": "freedom"
-        },
-        {
-            "tag": "dns-hijack",
-            "protocol": "dns",
-            "settings": {
-                "rewriteAddress": "127.0.0.1",
-                "rewritePort": 53,
-                "rules": [
-                    {
-                        "action": "direct"
-                    }
-                ]
-            }
-        }
-    ],
     "routing": {
-        "domainStrategy": "AsIs",
-        "rules": [
-            {
-                "port": 53,
-                "network": "tcp,udp",
-                "outboundTag": "dns-hijack"
-            },
-            {
-                "outboundTag": "direct",
-                "inboundTag": [
-                    "vless-websocket-inbound",
-                    "vless-httpupgrade-inbound",
-                    "vless-grpc-inbound",
-                    "vless-xhttp-stream-one-inbound",
-                    "vless-xhttp-stream-up-inbound",
-                    "vless-xhttp-packet-up-inbound"
-                ]
-            }
-        ]
+        "domainStrategy": "AsIs"
     }
 }
 
-xray run --test --config /usr/local/etc/xray/config.json
+cp /usr/local/etc/xray/transports/inbound-websocket.json /usr/local/etc/xray/conf.d/
+
+xray run --confdir /usr/local/etc/xray/conf.d/ --test
 
 systemctl status xray 
 systemctl start xray
@@ -512,127 +587,29 @@ ss -lntup
 
 xray client :
 
-ufw allow 8081/tcp
-ufw allow 8082/tcp
-ufw allow 8083/tcp
-ufw allow 8084/tcp
-ufw allow 8085/tcp
-ufw allow 8086/tcp
-ufw enable
+ufw allow 8080/tcp
 ufw status
 
 nano /etc/hosts : 172.16.1.2 xyz.internal
 getent ahostsv4 xyz.internal
 ping xyz.internal
 
+sftp xyz.internal ( get internal-ca.crt ) 
 cp internal-ca.crt /usr/local/share/ca-certificates/
 update-ca-certificates
 
 curl https://xyz.internal/index.html
 
-/usr/local/etc/xray/config.json :
+nano /usr/local/etc/xray/conf.d/client-inbound.json :
 
 {
-    "log": {
-        "loglevel": "warning",
-        "access": "/var/log/xray/access.log",
-        "error": "/var/log/xray/error.log"
+    "routing": {
+        "domainStrategy": "AsIs"
     },
     "inbounds": [
         {
-            "tag": "websocket-http-inbound",
             "protocol": "http",
-            "port": "8081",
-            "settings": {
-                "allowTransparent": false ,
-                "users": [
-                    {
-                        "user": "user1",
-                        "pass": "111"
-                    },
-                    {
-                        "user": "user2",
-                        "pass": "222"
-                    }
-                ]
-            }
-        },
-        {
-            "tag": "httpupgrade-http-inbound",
-            "protocol": "http",
-            "port": "8082",
-            "settings": {
-                "allowTransparent": false ,
-                "users": [
-                    {
-                        "user": "user1",
-                        "pass": "111"
-                    },
-                    {
-                        "user": "user2",
-                        "pass": "222"
-                    }
-                ]
-            }
-        },
-        {
-            "tag": "grpc-http-inbound",
-            "protocol": "http",
-            "port": "8083",
-            "settings": {
-                "allowTransparent": false ,
-                "users": [
-                    {
-                        "user": "user1",
-                        "pass": "111"
-                    },
-                    {
-                        "user": "user2",
-                        "pass": "222"
-                    }
-                ]
-            }
-        },
-        {
-            "tag": "xhttp-stream-one-http-inbound",
-            "protocol": "http",
-            "port": "8084",
-            "settings": {
-                "allowTransparent": false ,
-                "users": [
-                    {
-                        "user": "user1",
-                        "pass": "111"
-                    },
-                    {
-                        "user": "user2",
-                        "pass": "222"
-                    }
-                ]
-            }
-        },
-        {
-            "tag": "xhttp-stream-up-http-inbound",
-            "protocol": "http",
-            "port": "8085",
-            "settings": {
-                "allowTransparent": false ,
-                "users": [
-                    {
-                        "user": "user1",
-                        "pass": "111"
-                    },
-                    {
-                        "user": "user2",
-                        "pass": "222"
-                    }
-                ]
-            }
-        },
-        {
-            "tag": "xhttp-packet-up-http-inbound",
-            "protocol": "http",
-            "port": "8086",
+            "port": 8080 ,
             "settings": {
                 "allowTransparent": false ,
                 "users": [
@@ -647,15 +624,20 @@ curl https://xyz.internal/index.html
                 ]
             }
         }
-    ] ,
+    ]
+}
+
+nano /usr/local/etc/xray/transports/outbound-websocket.json :
+
+{
     "outbounds": [
         {
-            "tag": "vless-websocket-outbound",
             "protocol": "vless",
+            "targetStrategy": "AsIs",
             "settings": {
                 "address": "xyz.internal",
                 "port": 443,
-                "id": "d729a747-5af2-454c-9c0d-9c4e297e47ba",
+                "id": "",
                 "encryption": "none"
             },
             "streamSettings": {
@@ -667,17 +649,26 @@ curl https://xyz.internal/index.html
                 "tlsSettings": {
                     "serverName": "xyz.internal",
                     "fingerprint": "chrome",
-                    "alpn": [ "http/1.1" ]
+                    "alpn": [
+                        "http/1.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/outbound-httpupgrade.json :
+
+{
+    "outbounds": [
         {
-            "tag": "vless-httpupgrade-outbound",
             "protocol": "vless",
+            "targetStrategy": "AsIs",
             "settings": {
                 "address": "xyz.internal",
                 "port": 443,
-                "id": "706b1a6f-dacb-4f6b-a6e2-76741f0cd62d",
+                "id": "",
                 "encryption": "none"
             },
             "streamSettings": {
@@ -689,17 +680,29 @@ curl https://xyz.internal/index.html
                 "tlsSettings": {
                     "serverName": "xyz.internal",
                     "fingerprint": "chrome",
-                    "alpn": [ "http/1.1" ]
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "http/1.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/outbound-grpc.json :
+
+{
+    "outbounds": [
         {
-            "tag": "vless-grpc-outbound",
             "protocol": "vless",
+            "targetStrategy": "AsIs",
             "settings": {
                 "address": "xyz.internal",
                 "port": 443,
-                "id": "1ce51019-1d0f-42bf-bf4a-3e3dae32091a",
+                "id": "",
                 "encryption": "none"
             },
             "streamSettings": {
@@ -711,17 +714,30 @@ curl https://xyz.internal/index.html
                 "tlsSettings": {
                     "serverName": "xyz.internal",
                     "fingerprint": "chrome",
-                    "alpn": [ "h2" ]
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "h2" ,
+                        "http/1.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/outbound-xhttp-stream-one.json :
+
+{
+    "outbounds": [
         {
-            "tag": "vless-xhttp-stream-one-outbound",
             "protocol": "vless",
+            "targetStrategy": "AsIs",
             "settings": {
                 "address": "xyz.internal",
                 "port": 443,
-                "id": "bf88b705-c633-4f78-b189-2c5f65c5c7c4",
+                "id": "",
                 "encryption": "none"
             },
             "streamSettings": {
@@ -734,17 +750,30 @@ curl https://xyz.internal/index.html
                 "tlsSettings": {
                     "serverName": "xyz.internal",
                     "fingerprint": "chrome",
-                    "alpn": [ "h2" ]
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "h2" ,
+                        "http/1.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/outbound-xhttp-stream-up.json :
+
+{
+    "outbounds": [
         {
-            "tag": "vless-xhttp-stream-up-outbound",
             "protocol": "vless",
+            "targetStrategy": "AsIs",
             "settings": {
                 "address": "xyz.internal",
                 "port": 443,
-                "id": "848cae9e-4b8c-44d5-9fc5-0bdcc3044d78",
+                "id": "",
                 "encryption": "none"
             },
             "streamSettings": {
@@ -757,17 +786,30 @@ curl https://xyz.internal/index.html
                 "tlsSettings": {
                     "serverName": "xyz.internal",
                     "fingerprint": "chrome",
-                    "alpn": [ "h2" ]
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "h2" ,
+                        "http/1.1"
+                    ]
                 }
             }
-        },
+        }
+    ]
+}
+
+nano /usr/local/etc/xray/transports/outbound-xhttp-packet-up.json :
+
+{
+    "outbounds": [
         {
-            "tag": "vless-xhttp-packet-up-outbound",
             "protocol": "vless",
+            "targetStrategy": "AsIs",
             "settings": {
                 "address": "xyz.internal",
                 "port": 443,
-                "id": "5b4d4479-6a07-4ed6-86f5-d63beeaf0c01",
+                "id": "",
                 "encryption": "none"
             },
             "streamSettings": {
@@ -780,55 +822,22 @@ curl https://xyz.internal/index.html
                 "tlsSettings": {
                     "serverName": "xyz.internal",
                     "fingerprint": "chrome",
-                    "alpn": [ "h2" ]
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "h2" ,
+                        "http/1.1"
+                    ]
                 }
             }
         }
-    ],
-    "routing": {
-        "domainStrategy": "AsIs",
-        "rules": [
-            {
-                "outboundTag": "vless-websocket-outbound",
-                "inboundTag": [
-                    "websocket-http-inbound"
-                ]
-            },
-            {
-                "outboundTag": "vless-httpupgrade-outbound",
-                "inboundTag": [
-                    "httpupgrade-http-inbound"
-                ]
-            },
-            {
-                "outboundTag": "vless-grpc-outbound",
-                "inboundTag": [
-                    "grpc-http-inbound"
-                ]
-            },
-            {
-                "outboundTag": "vless-xhttp-stream-one-outbound",
-                "inboundTag": [
-                    "xhttp-stream-one-http-inbound"
-                ]
-            },
-            {
-                "outboundTag": "vless-xhttp-stream-up-outbound",
-                "inboundTag": [
-                    "xhttp-stream-up-http-inbound"
-                ]
-            },
-            {
-                "outboundTag": "vless-xhttp-packet-up-outbound",
-                "inboundTag": [
-                    "xhttp-packet-up-http-inbound"
-                ]
-            }
-        ]
-    }
+    ]
 }
 
-xray run --test --config /usr/local/etc/xray/config.json
+cp /usr/local/etc/xray/transports/outbound-websocket.json /usr/local/etc/xray/conf.d/
+
+xray run --confdir /usr/local/etc/xray/conf.d/ --test
 
 systemctl status xray 
 systemctl start xray
@@ -837,16 +846,7 @@ systemctl enable xray
 
 ss -lntup
 
-curl -v -x http://user1:111@127.0.0.1:8081 https://api.ipify.org
-curl -v -x http://user1:111@127.0.0.1:8082 https://api.ipify.org
-curl -v -x http://user1:111@127.0.0.1:8083 https://api.ipify.org
-curl -v -x http://user1:111@127.0.0.1:8084 https://api.ipify.org
-curl -v -x http://user1:111@127.0.0.1:8085 https://api.ipify.org
-curl -v -x http://user1:111@127.0.0.1:8086 https://api.ipify.org
-
-=========================================================================================================================================================================
-
-xray run -confdir /etc/xray/confs
+curl -v -x http://user1:111@127.0.0.1:8080 https://api.ipify.org
 
 ============================================================================================================================================================================
 
@@ -863,4 +863,52 @@ https://github.com/lxhao61/integrated-examples/blob/main/Xray(E%2BH%2BA)%2BNginx
 https://github.com/lxhao61/integrated-examples/blob/main/Xray(E%2BF%2BH%2BA)%2BNginx/
 https://github.com/chika0801/Xray-examples/tree/main/VLESS-WebSocket_or_HTTPUpgrade-TLS
 https://github.com/chika0801/Xray-examples/tree/main/VLESS-gRPC-TLS
+
+xray server multi inbound routing :
+
+"tag": "inbound-websocket",
+"tag": "inbound-httpupgrade",
+"tag": "inbound-grpc",
+"tag": "inbound-xhttp-stream-one",
+"tag": "inbound-xhttp-stream-up",
+"tag": "inbound-xhttp-packet-up",
+"tag": "direct"
+
+{
+    "outboundTag": "direct",
+    "inboundTag": [
+        "inbound-websocket",
+        "inbound-httpupgrade",
+        "inbound-grpc",
+        "inbound-xhttp-stream-one",
+        "inbound-xhttp-stream-up",
+        "inbound-xhttp-packet-up"
+    ]
+}
+
+xray server dns traffic hijack :
+
+outbound :
+
+{
+    "tag": "dns-hijack",
+    "protocol": "dns",
+    "settings": {
+        "rules": [
+            {
+                "action": "hijack"
+            }
+        ]
+    }
+}
+
+routing :
+
+"rules": [
+    {
+        "port": 53,
+        "network": "tcp,udp",
+        "outboundTag": "dns-hijack"
+    }
+]
 
