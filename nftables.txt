@@ -371,6 +371,8 @@ LinkLayerAddress=aa:bb:cc:dd:ee:ff
 
 Running Config Save :
 
+ --numeric-priority
+
 sudo nft -y list ruleset | sudo tee /etc/nftables.conf >/dev/null
 
 Troubleshooting :

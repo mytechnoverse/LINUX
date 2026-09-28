@@ -86,13 +86,28 @@ ${example_command_line}
 
 
 
+Edit `/file/path`
 
+```bash
+```
 
+```nginx
+```
 
+```json
+```
 
+```toml
+```
 
+```yaml
+```
 
+```text
+```
 
+```ini
+```
 
 
 
