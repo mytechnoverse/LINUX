@@ -1,0 +1,146 @@
+
+
+
+what netplan generated :
+
+ls /run/systemd/network/
+
+networkctl cat eth0
+
+systemd-analyze cat-config systemd/network/10-netplan-eth0.network
+
+
+networkctl list
+networkctl reload
+networkctl reconfigure eth0
+
+
+
+
+
+
+dpkg-query --show --showformat='${Status}' network-manager
+systemctl status NetworkManager
+systemctl stop NetworkManager
+systemctl status NetworkManager
+systemctl disable NetworkManager
+systemctl status systemd-networkd
+
+
+
+```bash
+ip -br link show
+```
+
+Create `/etc/systemd/network/00-bare-metal.link` :
+
+```ini
+[Match]
+MACAddress=mac_address
+
+[Link]
+Name=eth0
+```
+
+- `mac_address`
+
+Create `/etc/systemd/network/10-ether.network.d/10-dhcp-dual.conf` :
+
+```ini
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+LinkLocalAddressing=ipv6
+
+[DHCPv4]
+UseDomains=true
+ClientIdentifier=mac
+
+[DHCPv6]
+UseDomains=true
+DUIDType=link-layer
+```
+
+Create `/etc/systemd/network/10-ether.network.d/10-static-ipv4.conf` :
+
+```ini
+[Network]
+DHCP=no
+IPv6AcceptRA=no
+LinkLocalAddressing=no
+```
+
+Create `/etc/systemd/network/10-ether.network.d/10-static-dual.conf` :
+
+```ini
+[Network]
+DHCP=no
+IPv6AcceptRA=no
+LinkLocalAddressing=ipv6
+```
+
+Create `/etc/systemd/network/10-ether.network.d/20-ip.conf` :
+
+```ini
+[Address]
+Address=ip_address/network_prefix
+```
+
+Replace :
+
+- `ip_address`
+- `network_prefix`
+
+Create `/etc/systemd/network/10-ether.network.d/30-route.conf` :
+
+```ini
+[Route]
+Destination=network_id/network_prefix
+Gateway=gateway_address
+GatewayOnLink=yes
+```
+
+- `network_id`
+- `network_prefix`
+- `gateway_address`
+
+Create `/etc/systemd/network/10-ether.network.d/40-dns.conf` :
+
+```ini
+[Network]
+DNS=dns_address
+```
+
+- `dns_address`
+
+Create `/etc/systemd/network/10-ether.network.d/50-domain.conf` :
+
+```ini
+[Network]
+Domains=internal_domain
+```
+
+- `internal_domain`
+
+
+
+
+
+
+the hypervisor host :
+
+IPv4Forwarding=
+IPv6Forwarding=
+IPMasquerade=
+IPv4ProxyARP=
+IPv6ProxyNDP=
+
+??????
+
+
+
+
+
+
+
+

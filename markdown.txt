@@ -1,4 +1,5 @@
 
+
 VSCODE CTRL + SHIFT + V
 
 # Heading 1
@@ -79,35 +80,9 @@ ${script_name} --${option_1} <${option_1_value}> --${option_1} <${option_1_vlaue
 ${example_command_line}
 ```
 
----
 
 
 
-
-
-
-Edit `/file/path`
-
-```bash
-```
-
-```nginx
-```
-
-```json
-```
-
-```toml
-```
-
-```yaml
-```
-
-```text
-```
-
-```ini
-```
 
 
 

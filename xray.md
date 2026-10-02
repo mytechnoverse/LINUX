@@ -15,6 +15,92 @@
 
 # Basic Setup :
 
+### Network Setup :
+
+apt install systemd systemd-resolved iproute2 iputils-ping iputils-tracepath
+
+Create `/etc/systemd/network/00-virtual-machine.link` :
+
+```ini
+[Match]
+Type=ether
+
+[Link]
+Name=eth0
+```
+
+Create `/etc/systemd/network/10-eth0.network` :
+
+```ini
+[Match]
+Name=eth0
+```
+
+```bash
+mkdir /etc/systemd/network/10-ether.network.d/
+```
+
+Create `/etc/systemd/network/10-ether.network.d/10-dhcp-ipv4.conf` :
+
+```ini
+[Network]
+DHCP=ipv4
+IPv6AcceptRA=no
+LinkLocalAddressing=no
+
+[DHCPv4]
+UseDomains=true
+ClientIdentifier=mac
+```
+
+```bash
+systemctl status systemd-networkd
+systemctl start systemd-networkd
+systemctl status systemd-networkd
+systemctl enable systemd-networkd
+networkctl list
+networkctl status
+networkctl status eth0
+ip -br addr show
+ip route show
+ping gateway_address
+```
+
+```bash
+dpkg-query --show --showformat='${Status}' ifupdown
+systemctl status networking
+systemctl stop networking
+systemctl status networking
+systemctl disable networking
+systemctl status systemd-networkd
+apt purge ifupdown
+apt autoremove --purge
+```
+
+```bash
+dpkg-query --show --showformat='${Status}' netplan.io
+apt purge netplan.io
+apt purge network-manager
+apt autoremove --purge
+```
+
+### DNS Setup :
+
+```bash
+systemctl status systemd-resolved
+systemctl start systemd-resolved
+systemctl status systemd-resolved
+systemctl enable systemd-resolved
+test -L /etc/resolv.conf && readlink /etc/resolv.conf
+ln --symbolic --force /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+resolvectl status
+resolvectl dns eth0
+getent ahostsv4 google.com
+getent ahostsv6 google.com
+```
+
+### Package Managment :
+
 Check `/etc/apt/sources.list.d/ubuntu.sources` :
 
 ```text
@@ -38,7 +124,7 @@ apt upgrade
 mkdir -p /root/downloads/
 ```
 
-# Firewall Setup :
+### Firewall Setup :
 
 ```bash
 ufw status verbose
@@ -457,7 +543,7 @@ mkdir -p /usr/local/etc/xray/nginx/
 Create `/usr/local/etc/xray/nginx/xray-websocket.conf` :
 
 ```nginx
-location = /xray/websocket {
+location = /xray_path/websocket {
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -474,7 +560,7 @@ location = /xray/websocket {
 Create `/usr/local/etc/xray/nginx/xray-httpupgrade.conf` :
 
 ```nginx
-location = /xray/httpupgrade {
+location = /xray_path/httpupgrade {
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -491,7 +577,7 @@ location = /xray/httpupgrade {
 Create `/usr/local/etc/xray/nginx/xray-grpc.conf` :
 
 ```nginx
-location /xray/grpc/ {
+location /xray_path/grpc/ {
     grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     client_max_body_size 0;
     client_body_timeout 3600s;
@@ -504,7 +590,7 @@ location /xray/grpc/ {
 Create `/usr/local/etc/xray/nginx/xray-xhttp-stream-one.conf` :
 
 ```nginx
-location /xray/xhttp-stream-one/ {
+location /xray_path/xhttp-stream-one/ {
     grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     client_max_body_size 0;
     client_body_timeout 3600s;
@@ -517,7 +603,7 @@ location /xray/xhttp-stream-one/ {
 Create `/usr/local/etc/xray/nginx/xray-xhttp-stream-up.conf` :
 
 ```nginx
-location /xray/xhttp-stream-up/ {
+location /xray_path/xhttp-stream-up/ {
     grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     client_max_body_size 0;
     client_body_timeout 3600s;
@@ -530,7 +616,7 @@ location /xray/xhttp-stream-up/ {
 Create `/usr/local/etc/xray/nginx/xray-xhttp-packet-up.conf` :
 
 ```nginx
-location /xray/xhttp-packet-up/ {
+location /xray_path/xhttp-packet-up/ {
     grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     client_max_body_size 0;
     client_body_timeout 3600s;
@@ -541,7 +627,17 @@ location /xray/xhttp-packet-up/ {
 ```
 
 ```bash
-cp /usr/local/etc/xray/nginx/xray-websocket.conf /etc/nginx/xyz.internal/conf.d/
+cp /usr/local/etc/xray/nginx/xray-xhttp-stream-up.conf /etc/nginx/xyz.internal/conf.d/
+xray_path=$(openssl rand -hex 16)
+```
+
+Edit `/etc/nginx/xyz.internal/conf.d/xray-xhttp-stream-up.conf` :
+
+Replace :
+
+- `xray_path` : echo $xray_path 
+
+```bash
 systemctl restart nginx
 systemctl status nginx
 ```
@@ -586,7 +682,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-websocket.json` :
                 "network": "ws",
                 "security": "none",
                 "wsSettings": {
-                    "path": "/xray/websocket"
+                    "path": "/xray_path/websocket"
                 },
                 "sockopt": {
                     "trustedXForwardedFor": [
@@ -621,7 +717,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-httpupgrade.json` :
                 "network": "httpupgrade",
                 "security": "none",
                 "httpupgradeSettings": {
-                    "path": "/xray/httpupgrade"
+                    "path": "/xray_path/httpupgrade"
                 },
                 "sockopt": {
                     "trustedXForwardedFor": [
@@ -656,7 +752,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-grpc.json` :
                 "network": "grpc",
                 "security": "none",
                 "grpcSettings": {
-                    "serviceName": "xray/grpc"
+                    "serviceName": "xray_path/grpc"
                 },
                 "sockopt": {
                     "trustedXForwardedFor": [
@@ -691,7 +787,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-one.json` 
                 "network": "xhttp",
                 "security": "none",
                 "xhttpSettings": {
-                    "path": "/xray/xhttp-stream-one",
+                    "path": "/xray_path/xhttp-stream-one",
                     "mode": "stream-one"
                 },
                 "sockopt": {
@@ -727,7 +823,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-up.json` :
                 "network": "xhttp",
                 "security": "none",
                 "xhttpSettings": {
-                    "path": "/xray/xhttp-stream-up",
+                    "path": "/xray_path/xhttp-stream-up",
                     "mode": "stream-up"
                 },
                 "sockopt": {
@@ -763,7 +859,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-packet-up.json` :
                 "network": "xhttp",
                 "security": "none",
                 "xhttpSettings": {
-                    "path": "/xray/xhttp-packet-up",
+                    "path": "/xray_path/xhttp-packet-up",
                     "mode": "packet-up"
                 },
                 "sockopt": {
@@ -812,13 +908,13 @@ Create `/usr/local/etc/xray/conf.d/40-routing-server.json` :
 ```
 
 ```bash
-cp /usr/local/etc/xray/transports/20-inbound-server-websocket.json /usr/local/etc/xray/conf.d/
+cp /usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-up.json /usr/local/etc/xray/conf.d/
+xray_id=$(xray uuid)
 mkdir /root/xray-client/
-xray uuid > /root/xray-client/xray-id.txt
-cat /root/xray-client/xray-id.txt
+
 ```
 
-Edit `/usr/local/etc/xray/conf.d/20-inbound-server-websocket.json` :
+Edit `/usr/local/etc/xray/conf.d/20-inbound-server-xhttp-stream-up.json` :
 
 Place :
 
@@ -839,7 +935,6 @@ tar -c -f /root/xray-client.tar -C /root/xray-client/ xray-id.txt -C /root/tls/i
 Create `/etc/nftables/conf.d/11-xray-client.nft` :
 
 ```text
-add rule inet filter output udp dport 443 drop
 add rule inet filter input tcp dport 8080 accept
 ```
 
