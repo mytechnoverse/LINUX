@@ -1,20 +1,60 @@
 
+```bash
+dpkg-query --show --showformat='${Status}' openssh-server
+apt install openssh-server
+```
+
+
+
+
+/etc/ssh/sshd_config :
+
+
+
+
+
+/etc/ssh/sshd_config.d/ 
+
+
+ipv4 :
+
+AddressFamily inet
+X11Forwarding no
+AllowGroups ssh_users
+
+
+
+
+
+
+
+
+
+
+sshd -t
+systemctl restart ssh
+
+
+
+
+
+
+
 /etc/ssh/sshd_config.d/00-bruteforce.conf :
 
-AllowUsers admin_username
+AllowGroups ssh_users
 PermitRootLogin no
 PermitEmptyPasswords no
 PasswordAuthentication yes
 KbdInteractiveAuthentication no
 UsePAM yes
+MaxSessions 1
 MaxAuthTries 3
 LoginGraceTime 1m
 MaxStartups 10
 PerSourceMaxStartups 2
 ClientAliveInterval 20
 ClientAliveCountMax 3
-
-- `admin_username`
 
 sshd -t
 systemctl restart ssh
