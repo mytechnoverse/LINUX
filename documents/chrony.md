@@ -15,7 +15,7 @@ apt install chrony
 
 
 server : nts + chrony + static
-clients : normal + systemd-timesyncd + dhcp and static
+clients : normal + chrony + dhcp and static
 
 ---
 
@@ -76,7 +76,7 @@ chronyc -N authdata
 
 
 
-
+https://ubuntu.com/server/docs/how-to/networking/serve-ntp-with-chrony/
 
 
 [DHCPv4]

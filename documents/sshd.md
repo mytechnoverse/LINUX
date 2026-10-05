@@ -4,111 +4,106 @@ dpkg-query --show --showformat='${Status}' openssh-server
 apt install openssh-server
 ```
 
-
-
-
 /etc/ssh/sshd_config :
 
-
-
-
-
-/etc/ssh/sshd_config.d/ 
-
-
-ipv4 :
+/etc/ssh/sshd_config.d/00-hardening.conf :
 
 AddressFamily inet
-X11Forwarding no
 AllowGroups ssh_users
-
-
-
-
-
-
-
-
-
-
-sshd -t
-systemctl restart ssh
-
-
-
-
-
-
-
-/etc/ssh/sshd_config.d/00-bruteforce.conf :
-
-AllowGroups ssh_users
+AuthenticationMethods password
 PermitRootLogin no
-PermitEmptyPasswords no
-PasswordAuthentication yes
-KbdInteractiveAuthentication no
-UsePAM yes
-MaxSessions 1
-MaxAuthTries 3
-LoginGraceTime 1m
-MaxStartups 10
-PerSourceMaxStartups 2
+DisableForwarding yes
+DebianBanner no
+PrintMotd no
+ChannelTimeout session=15m
+UnusedConnectionTimeout 1m
 ClientAliveInterval 20
 ClientAliveCountMax 3
+Ciphers aes128-gcm@openssh.com
+HostKeyAlgorithms ssh-ed25519
+KexAlgorithms curve25519-sha256
+MACs hmac-sha2-256-etm@openssh.com
+LoginGraceTime 30
+MaxAuthTries 3
+MaxSessions 1
+MaxStartups 100:100:100
+PerSourceMaxStartups 1
+PerSourcePenalties authfail:15m noauth:15m grace-exceeded:15m refuseconnection:15m
+Match Group *,!ssh_users
+    RefuseConnection yes
 
-sshd -t
-systemctl restart ssh
 
-/etc/nftables/conf.d/10-chain-ssh-bruteforce.nft :
 
-table inet firewall {
-    set ssh_conn_rate { type ipv4_addr; flags dynamic,timeout; timeout 2m; size 65536; }
-    set ssh_blocklist { type ipv4_addr; flags dynamic,timeout; timeout 5m; size 65536; }
-    set ssh_offenders { type ipv4_addr; flags dynamic,timeout; timeout 1d; size 65536; }
-    set ssh_repeaters { type ipv4_addr; flags dynamic,timeout; timeout 1w; size 65536; }
 
-    chain ssh_strike {
-        ip saddr @ssh_repeaters update @ssh_repeaters { ip saddr } add @ssh_blocklist { ip saddr timeout 24h } counter drop
-        ip saddr @ssh_offenders update @ssh_repeaters { ip saddr } add @ssh_blocklist { ip saddr timeout 1h } counter drop
-        update @ssh_offenders { ip saddr } add @ssh_blocklist { ip saddr timeout 5m } counter drop
+
+https://wiki.nftables.org/wiki-nftables/index.php/Synproxy
+
+
+
+tcp flooding , icmp flooding , http flooding
+
+
+
+
+/etc/sysctl.d/10-syn-proxy.conf
+
+net.netfilter.nf_conntrack_tcp_loose = 0
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_timestamps = 1
+
+
+sysctl --system
+
+
+
+
+syn proxy for 22 , 80 , 443
+
+table ip syn_proxy {
+    chain prerouting {
+        type filter hook prerouting priority -300; policy accept;
+        tcp dport 22 tcp flags syn notrack
     }
-
-    chain ssh_guard {
-        type filter hook input priority -10; policy accept;
-        ip saddr @ssh_blocklist tcp dport 22 counter drop
-        meta nfproto ipv4 tcp dport 22 ct state new add @ssh_conn_rate { ip saddr limit rate over 3/minute burst 3 packets } jump ssh_strike
+    chain input {
+        type filter hook input priority 0; policy accept;
+        tcp dport 22 ct state invalid,untracked synproxy mss 1460 wscale 7 timestamp sack-perm
+        ct state invalid drop
     }
 }
 
-/etc/fail2ban/fail2ban.local :
 
-[Definition]
-dbpurgeage = 2w
+use ( ct count ) with per source limiting new connections
+limit number of simultaneous tcp connenctions from each source ip to port 22 , 80 , 443 tcp
+1 simultaneous tcp connection to ssh
+8 simultaneous connections to same http Host header for http
+8 simultaneous connections to same sni for https
 
-/etc/fail2ban/jail.d/10-sshd.local :
+also define per source limit for icmp and icmpv6
 
-[DEFAULT]
-backend = systemd
-banaction = nftables
-
-[sshd]
-enabled = true
-mode = aggressive
-maxretry = 5
-findtime = 1h
-bantime = 5m
-bantime.increment = true
-bantime.multipliers = 1 12 288 2016
-bantime.maxtime = 1w
-
-sudo nft -c -f /etc/nftables.conf && sudo systemctl reload nftables
-sudo systemctl restart fail2ban
+tcp flags '& (fin|syn|rst|psh|ack|urg) == fin|psh|urg' drop
 
 
-sudo nft list set inet firewall ssh_blocklist
-sudo fail2ban-client status sshd
-nft list table inet f2b-table
 
-fail2ban-client set sshd unbanip 203.0.113.5
-nft delete element inet firewall ssh_black_list { 203.0.113.5 }
+tcp flags & (fin|syn) == (fin|syn) drop
+tcp flags & (syn|rst) == (syn|rst) drop
+tcp flags & (fin|rst) == (fin|rst) drop
+tcp flags & (fin|syn|rst|ack) == 0 drop
+
+
+
+
+
+
+
+sshd -t
+systemctl restart ssh
+
+
+
+
+
+
+
+
+
 
