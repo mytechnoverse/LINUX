@@ -114,7 +114,6 @@ Keep :
 
 ```bash
 dnscrypt-proxy -check -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml
-dnscrypt-proxy -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml -resolve google.com
 mkdir -p /etc/systemd/system/dnscrypt-proxy.service.d/
 ```
 
