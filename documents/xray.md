@@ -17,7 +17,6 @@ touch /var/log/xray/error.log
 chown nobody:nogroup /var/log/xray/error.log
 chmod 600 /var/log/xray/error.log
 mkdir -p /usr/local/etc/xray/conf.d/
-mkdir -p /usr/local/etc/xray/transports/
 ```
 
 Create `/usr/local/etc/xray/conf.d/00-log.json` :
@@ -173,6 +172,10 @@ systemctl status nginx
 
 ### Xray Josn Config :
 
+```bash
+mkdir -p /usr/local/etc/xray/transports/
+```
+
 Create `/usr/local/etc/xray/conf.d/10-dns-server.json` :
 
 ```json
@@ -182,7 +185,7 @@ Create `/usr/local/etc/xray/conf.d/10-dns-server.json` :
         "servers": [
             {
                 "address": "127.0.0.1",
-                "port": 53
+                "port": 2053
             }
         ]
     }
@@ -415,6 +418,15 @@ Create `/usr/local/etc/xray/conf.d/30-outbound-server.json` :
                     "domainStrategy": "UseIP"
                 }
             }
+        },
+        {
+            "tag": "block",
+            "protocol": "blackhole",
+            "settings": {
+                "response": {
+                    "type": "none"
+                }
+            }
         }
     ]
 }
@@ -483,8 +495,7 @@ sftp root@xyz.internal
 get xray-client.tar
 mkdir /root/xray-client/
 tar -x -f xray-client.tar -C /root/xray-client/
-cp /root/xray-client/internal-ca.crt /usr/local/share/ca-certificates/
-update-ca-certificates
+
 curl https://xyz.internal/index.html
 ```
 
@@ -753,6 +764,15 @@ Create `/usr/local/etc/xray/conf.d/31-outbound-client-direct.json` :
                     "domainStrategy": "AsIs"
                 }
             }
+        },
+        {
+            "tag": "block",
+            "protocol": "blackhole",
+            "settings": {
+                "response": {
+                    "type": "none"
+                }
+            }
         }
     ]
 }
@@ -768,7 +788,8 @@ Create `/usr/local/etc/xray/conf.d/40-routing-client-split-tunneling.json` :
             {
                 "outboundTag": "direct" ,
                 "domain": [
-                    "regexp:^(.*\\.)?abc\\.com$"
+                    "domain:abc.com",
+                    "full:api.abc.com"
                 ]
             },
             {
@@ -803,9 +824,8 @@ Place :
 
 Edit `/usr/local/etc/xray/conf.d/40-routing-client-split-tunneling.json` :
 
-Replace :
-
-- `regexp`
+- `domain`
+- `ip`
 
 ```bash
 xray run --confdir /usr/local/etc/xray/conf.d/ --test
