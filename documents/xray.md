@@ -1,15 +1,26 @@
 
-# Xray Install :
+# Xray :
 
 ```bash
-apt install curl ca-certificates file unzip
+dpkg-query --show --showformat='${Status}' curl
+apt install curl
+dpkg-query --show --showformat='${Status}' ca-certificates
+apt install ca-certificates
+dpkg-query --show --showformat='${Status}' file
+apt install file
+dpkg-query --show --showformat='${Status}' unzip
+apt install unzip
 mkdir -p /root/downloads/
 curl -L -o /root/downloads/xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
 file /root/downloads/xray.zip
 unzip /root/downloads/xray.zip xray -d /root/downloads/
 file /root/downloads/xray
-mv /root/downloads/xray /usr/local/bin/xray
-mkdir -p /var/log/xray/
+rm /root/downloads/xray.zip
+cp /root/downloads/xray /usr/local/bin/xray
+```
+
+```bash
+mkdir /var/log/xray/
 touch /var/log/xray/access.log
 chown nobody:nogroup /var/log/xray/access.log
 chmod 600 /var/log/xray/access.log
@@ -59,10 +70,7 @@ WantedBy=multi-user.target
 systemctl daemon-reload
 ```
 
-# Xray Server :
-
-
-### Xray Nginx Config :
+### Xray Server :
 
 ```bash
 mkdir -p /usr/local/etc/xray/nginx/

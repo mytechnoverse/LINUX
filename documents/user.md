@@ -50,6 +50,7 @@ echo 'new_username:password_hash' | chpasswd --encrypted
 groups new_username
 usermod --append --groups sudo new_username
 usermod --append --groups ssh_users new_username
+usermod --append --groups systemd-journal new_username
 ```
 
 sudo --login
