@@ -1,6 +1,6 @@
 
 ```bash
-dpkg-query --show --showformat='${Status}' openssh-server
+dpkg-query --show --showformat='${Status}\n' openssh-server
 apt install openssh-server
 ```
 

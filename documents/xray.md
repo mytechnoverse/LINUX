@@ -1,43 +1,34 @@
 
 # Xray :
 
+### Xray Install :
+
+- <https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip>
+
 ```bash
-dpkg-query --show --showformat='${Status}' curl
-apt install curl
-dpkg-query --show --showformat='${Status}' ca-certificates
-apt install ca-certificates
-dpkg-query --show --showformat='${Status}' file
-apt install file
-dpkg-query --show --showformat='${Status}' unzip
+dpkg-query --show --showformat='${Status}\n' socat
+apt install socat
+dpkg-query --show --showformat='${Status}\n' unzip
 apt install unzip
-mkdir -p /root/downloads/
-curl -L -o /root/downloads/xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
-file /root/downloads/xray.zip
-unzip /root/downloads/xray.zip xray -d /root/downloads/
-file /root/downloads/xray
-rm /root/downloads/xray.zip
-cp /root/downloads/xray /usr/local/bin/xray
 ```
 
 ```bash
-mkdir /var/log/xray/
-touch /var/log/xray/access.log
-chown nobody:nogroup /var/log/xray/access.log
-chmod 600 /var/log/xray/access.log
-touch /var/log/xray/error.log
-chown nobody:nogroup /var/log/xray/error.log
-chmod 600 /var/log/xray/error.log
-mkdir -p /usr/local/etc/xray/conf.d/
+mkdir -p /root/downloads/
+unzip /root/downloads/xray.zip xray -d /root/downloads/
+cp /root/downloads/xray /usr/bin/xray
 ```
 
-Create `/usr/local/etc/xray/conf.d/00-log.json` :
+```bash
+mkdir -p /etc/xray/conf.d/
+```
+
+Create `/etc/xray/conf.d/00-log.json` :
 
 ```json
 {
     "log": {
-        "loglevel": "warning",
-        "access": "/var/log/xray/access.log",
-        "error": "/var/log/xray/error.log"
+        "loglevel": "warning" ,
+        "dnsLog": true
     }
 }
 ```
@@ -51,16 +42,12 @@ After=network.target nss-lookup.target
 
 [Service]
 User=nobody
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-ExecStart=/usr/local/bin/xray run --confdir /usr/local/etc/xray/conf.d/
+ExecStart=/usr/bin/xray run --confdir /etc/xray/conf.d/
 Restart=on-failure
 RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
-RuntimeDirectory=xray
-RuntimeDirectoryMode=0755
 
 [Install]
 WantedBy=multi-user.target
@@ -73,10 +60,10 @@ systemctl daemon-reload
 ### Xray Server :
 
 ```bash
-mkdir -p /usr/local/etc/xray/nginx/
+mkdir -p /usr/share/xray/nginx/
 ```
 
-Create `/usr/local/etc/xray/nginx/xray-websocket.conf` :
+Create `/usr/share/xray/nginx/nginx-xray-websocket.conf` :
 
 ```nginx
 location = /xray_path/websocket {
@@ -89,11 +76,11 @@ location = /xray_path/websocket {
     proxy_request_buffering off;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_pass http://127.0.0.1:3000;
+    proxy_pass http://127.0.0.1:xray_port;
 }
 ```
 
-Create `/usr/local/etc/xray/nginx/xray-httpupgrade.conf` :
+Create `/usr/share/xray/nginx/nginx-xray-httpupgrade.conf` :
 
 ```nginx
 location = /xray_path/httpupgrade {
@@ -106,11 +93,11 @@ location = /xray_path/httpupgrade {
     proxy_request_buffering off;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_pass http://127.0.0.1:3000;
+    proxy_pass http://127.0.0.1:xray_port;
 }
 ```
 
-Create `/usr/local/etc/xray/nginx/xray-grpc.conf` :
+Create `/usr/share/xray/nginx/nginx-xray-grpc.conf` :
 
 ```nginx
 location /xray_path/grpc/ {
@@ -119,11 +106,11 @@ location /xray_path/grpc/ {
     client_body_timeout 3600s;
     grpc_read_timeout 3600s;
     grpc_send_timeout 3600s;
-    grpc_pass grpc://127.0.0.1:3000;
+    grpc_pass grpc://127.0.0.1:xray_port;
 }
 ```
 
-Create `/usr/local/etc/xray/nginx/xray-xhttp-stream-one.conf` :
+Create `/usr/share/xray/nginx/nginx-xray-xhttp-stream-one.conf` :
 
 ```nginx
 location /xray_path/xhttp-stream-one/ {
@@ -132,11 +119,11 @@ location /xray_path/xhttp-stream-one/ {
     client_body_timeout 3600s;
     grpc_read_timeout 3600s;
     grpc_send_timeout 3600s;
-    grpc_pass grpc://127.0.0.1:3000;
+    grpc_pass grpc://127.0.0.1:xray_port;
 }
 ```
 
-Create `/usr/local/etc/xray/nginx/xray-xhttp-stream-up.conf` :
+Create `/usr/share/xray/nginx/nginx-xray-xhttp-stream-up.conf` :
 
 ```nginx
 location /xray_path/xhttp-stream-up/ {
@@ -145,11 +132,11 @@ location /xray_path/xhttp-stream-up/ {
     client_body_timeout 3600s;
     grpc_read_timeout 3600s;
     grpc_send_timeout 3600s;
-    grpc_pass grpc://127.0.0.1:3000;
+    grpc_pass grpc://127.0.0.1:xray_port;
 }
 ```
 
-Create `/usr/local/etc/xray/nginx/xray-xhttp-packet-up.conf` :
+Create `/usr/share/xray/nginx/nginx-xray-xhttp-packet-up.conf` :
 
 ```nginx
 location /xray_path/xhttp-packet-up/ {
@@ -158,33 +145,26 @@ location /xray_path/xhttp-packet-up/ {
     client_body_timeout 3600s;
     grpc_read_timeout 3600s;
     grpc_send_timeout 3600s;
-    grpc_pass grpc://127.0.0.1:3000;
+    grpc_pass grpc://127.0.0.1:xray_port;
 }
 ```
 
 ```bash
-cp /usr/local/etc/xray/nginx/xray-xhttp-stream-up.conf /etc/nginx/xyz.internal/conf.d/
+cp /usr/share/xray/nginx/nginx-xray-xhttp-stream-up.conf /etc/nginx/server_name/
 xray_path=$(openssl rand -hex 16)
 ```
 
-Edit `/etc/nginx/xyz.internal/conf.d/xray-xhttp-stream-up.conf` :
+Edit `/etc/nginx/server_name/conf.d/xray-xhttp-stream-up.conf` :
 
-Replace :
-
-- `xray_path` : echo $xray_path 
+- `xray_path`
+- `xray_port`
 
 ```bash
 systemctl restart nginx
 systemctl status nginx
 ```
 
-### Xray Josn Config :
-
-```bash
-mkdir -p /usr/local/etc/xray/transports/
-```
-
-Create `/usr/local/etc/xray/conf.d/10-dns-server.json` :
+Create `/etc/xray/conf.d/10-dns-server.json` :
 
 ```json
 {
@@ -193,14 +173,63 @@ Create `/usr/local/etc/xray/conf.d/10-dns-server.json` :
         "servers": [
             {
                 "address": "127.0.0.1",
-                "port": 2053
+                "port": dnscrypt_port
             }
         ]
     }
 }
 ```
 
-Create `/usr/local/etc/xray/transports/20-inbound-server-websocket.json` :
+- `dnscrypt_port`
+
+Create `/etc/xray/conf.d/30-outbound-server.json` :
+
+```json
+{
+    "outbounds": [
+        {
+            "tag": "direct",
+            "protocol": "freedom",
+            "streamSettings": {
+                "sockopt": {
+                    "domainStrategy": "UseIP"
+                }
+            }
+        },
+        {
+            "tag": "block",
+            "protocol": "blackhole",
+            "settings": {
+                "response": {
+                    "type": "none"
+                }
+            }
+        }
+    ]
+}
+```
+
+Create `/etc/xray/conf.d/40-routing-server.json` :
+
+```json
+{
+    "routing": {
+        "domainStrategy": "AsIs",
+        "rules": [
+            {
+                "outboundTag": "direct" ,
+                "inboundTag": "tunnel"
+            }
+        ]
+    }
+}
+```
+
+```bash
+mkdir -p /usr/share/xray/transports/
+```
+
+Create `/usr/share/xray/transports/20-inbound-server-websocket.json` :
 
 ```json
 {
@@ -208,7 +237,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-websocket.json` :
         {
             "tag": "tunnel",
             "listen": "127.0.0.1",
-            "port": 3000 ,
+            "port": xray_port ,
             "protocol": "vless",
             "settings": {
                 "clients": [
@@ -235,7 +264,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-websocket.json` :
 }
 ```
 
-Create `/usr/local/etc/xray/transports/20-inbound-server-httpupgrade.json` :
+Create `/usr/share/xray/transports/20-inbound-server-httpupgrade.json` :
 
 ```json
 {
@@ -243,7 +272,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-httpupgrade.json` :
         {
             "tag": "tunnel",
             "listen": "127.0.0.1",
-            "port": 3000 ,
+            "port": xray_port ,
             "protocol": "vless",
             "settings": {
                 "clients": [
@@ -270,7 +299,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-httpupgrade.json` :
 }
 ```
 
-Create `/usr/local/etc/xray/transports/20-inbound-server-grpc.json` :
+Create `/usr/share/xray/transports/20-inbound-server-grpc.json` :
 
 ```json
 {
@@ -278,7 +307,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-grpc.json` :
         {
             "tag": "tunnel",
             "listen": "127.0.0.1",
-            "port": 3000 ,
+            "port": xray_port ,
             "protocol": "vless",
             "settings": {
                 "clients": [
@@ -305,7 +334,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-grpc.json` :
 }
 ```
 
-Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-one.json` :
+Create `/usr/share/xray/transports/20-inbound-server-xhttp-stream-one.json` :
 
 ```json
 {
@@ -313,7 +342,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-one.json` 
         {
             "tag": "tunnel",
             "listen": "127.0.0.1",
-            "port": 3000 ,
+            "port": xray_port ,
             "protocol": "vless",
             "settings": {
                 "clients": [
@@ -341,7 +370,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-one.json` 
 }
 ```
 
-Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-up.json` :
+Create `/usr/share/xray/transports/20-inbound-server-xhttp-stream-up.json` :
 
 ```json
 {
@@ -349,7 +378,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-up.json` :
         {
             "tag": "tunnel",
             "listen": "127.0.0.1",
-            "port": 3000 ,
+            "port": xray_port ,
             "protocol": "vless",
             "settings": {
                 "clients": [
@@ -377,7 +406,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-up.json` :
 }
 ```
 
-Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-packet-up.json` :
+Create `/usr/share/xray/transports/20-inbound-server-xhttp-packet-up.json` :
 
 ```json
 {
@@ -385,7 +414,7 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-packet-up.json` :
         {
             "tag": "tunnel",
             "listen": "127.0.0.1",
-            "port": 3000 ,
+            "port": xray_port ,
             "protocol": "vless",
             "settings": {
                 "clients": [
@@ -413,26 +442,36 @@ Create `/usr/local/etc/xray/transports/20-inbound-server-xhttp-packet-up.json` :
 }
 ```
 
-Create `/usr/local/etc/xray/conf.d/30-outbound-server.json` :
+Create `/usr/share/xray/transports/30-outbound-client-websocket.json` :
 
 ```json
 {
     "outbounds": [
         {
-            "tag": "direct",
-            "protocol": "freedom",
-            "streamSettings": {
-                "sockopt": {
-                    "domainStrategy": "UseIP"
-                }
-            }
-        },
-        {
-            "tag": "block",
-            "protocol": "blackhole",
+            "tag": "tunnel",
+            "protocol": "vless",
+            "targetStrategy": "AsIs",
             "settings": {
-                "response": {
-                    "type": "none"
+                "address": "server_name",
+                "port": 443,
+                "id": "",
+                "encryption": "none"
+            },
+            "streamSettings": {
+                "network": "websocket",
+                "wsSettings": {
+                    "path": "/xray_path/websocket"
+                },
+                "security": "tls",
+                "tlsSettings": {
+                    "serverName": "server_name",
+                    "fingerprint": "chrome",
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "http/1.1"
+                    ]
                 }
             }
         }
@@ -440,37 +479,237 @@ Create `/usr/local/etc/xray/conf.d/30-outbound-server.json` :
 }
 ```
 
-Create `/usr/local/etc/xray/conf.d/40-routing-server.json` :
+Create `/usr/share/xray/transports/30-outbound-client-httpupgrade.json` :
 
 ```json
 {
-    "routing": {
-        "domainStrategy": "AsIs",
-        "rules": [
-            {
-                "outboundTag": "direct" ,
-                "inboundTag": "tunnel"
+    "outbounds": [
+        {
+            "tag": "tunnel",
+            "protocol": "vless",
+            "targetStrategy": "AsIs",
+            "settings": {
+                "address": "server_name",
+                "port": 443,
+                "id": "",
+                "encryption": "none"
+            },
+            "streamSettings": {
+                "network": "httpupgrade",
+                "httpupgradeSettings": {
+                    "path": "/xray_path/httpupgrade"
+                },
+                "security": "tls",
+                "tlsSettings": {
+                    "serverName": "server_name",
+                    "fingerprint": "chrome",
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "http/1.1"
+                    ]
+                }
             }
-        ]
-    }
+        }
+    ]
 }
 ```
 
+Create `/usr/share/xray/transports/30-outbound-client-grpc.json` :
+
+```json
+{
+    "outbounds": [
+        {
+            "tag": "tunnel",
+            "protocol": "vless",
+            "targetStrategy": "AsIs",
+            "settings": {
+                "address": "server_name",
+                "port": 443,
+                "id": "",
+                "encryption": "none"
+            },
+            "streamSettings": {
+                "network": "grpc",
+                "grpcSettings": {
+                    "serviceName": "xray_path/grpc"
+                },
+                "security": "tls",
+                "tlsSettings": {
+                    "serverName": "server_name",
+                    "fingerprint": "chrome",
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "h2" ,
+                        "http/1.1"
+                    ]
+                }
+            }
+        }
+    ]
+}
+```
+
+Create `/usr/share/xray/transports/30-outbound-client-xhttp-stream-one.json` :
+
+```json
+{
+    "outbounds": [
+        {
+            "tag": "tunnel",
+            "protocol": "vless",
+            "targetStrategy": "AsIs",
+            "settings": {
+                "address": "server_name",
+                "port": 443,
+                "id": "",
+                "encryption": "none"
+            },
+            "streamSettings": {
+                "network": "xhttp",
+                "xhttpSettings": {
+                    "path": "/xray_path/xhttp-stream-one",
+                    "mode": "stream-one"
+                },
+                "security": "tls",
+                "tlsSettings": {
+                    "serverName": "server_name",
+                    "fingerprint": "chrome",
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "h2" ,
+                        "http/1.1"
+                    ]
+                }
+            }
+        }
+    ]
+}
+```
+
+Create `/usr/share/xray/transports/30-outbound-client-xhttp-stream-up.json` :
+
+```json
+{
+    "outbounds": [
+        {
+            "tag": "tunnel",
+            "protocol": "vless",
+            "targetStrategy": "AsIs",
+            "settings": {
+                "address": "server_name",
+                "port": 443,
+                "id": "",
+                "encryption": "none"
+            },
+            "streamSettings": {
+                "network": "xhttp",
+                "xhttpSettings": {
+                    "path": "/xray_path/xhttp-stream-up",
+                    "mode": "stream-up"
+                },
+                "security": "tls",
+                "tlsSettings": {
+                    "serverName": "server_name",
+                    "fingerprint": "chrome",
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "h2" ,
+                        "http/1.1"
+                    ]
+                }
+            }
+        }
+    ]
+}
+```
+
+Create `/usr/share/xray/transports/30-outbound-client-xhttp-packet-up.json` :
+
+```json
+{
+    "outbounds": [
+        {
+            "tag": "tunnel",
+            "protocol": "vless",
+            "targetStrategy": "AsIs",
+            "settings": {
+                "address": "server_name",
+                "port": 443,
+                "id": "",
+                "encryption": "none"
+            },
+            "streamSettings": {
+                "network": "xhttp",
+                "xhttpSettings": {
+                    "path": "/xray_path/xhttp-packet-up",
+                    "mode": "packet-up"
+                },
+                "security": "tls",
+                "tlsSettings": {
+                    "serverName": "server_name",
+                    "fingerprint": "chrome",
+                    "allowInsecure": false ,
+                    "minVersion": "1.2",
+                    "maxVersion": "1.3",
+                    "alpn": [
+                        "h2" ,
+                        "http/1.1"
+                    ]
+                }
+            }
+        }
+    ]
+}
+```
+
+
+
+
 ```bash
-cp /usr/local/etc/xray/transports/20-inbound-server-xhttp-stream-up.json /usr/local/etc/xray/conf.d/
+cp /usr/share/xray/transports/20-inbound-server-xhttp-stream-up.json /etc/xray/conf.d/
 xray_id=$(xray uuid)
-mkdir /root/xray-client/
+
+cp /usr/share/xray/transports/30-outbound-client-xhttp-stream-up.json /var/www/server_name/
+
+
 
 ```
 
-Edit `/usr/local/etc/xray/conf.d/20-inbound-server-xhttp-stream-up.json` :
+Edit `/etc/xray/conf.d/20-inbound-server-xhttp-stream-up.json` :
 
-Place :
-
+- `xray_port`
 - `settings.clients.id`
+- `xray_path`
+
+
+Edit `/etc/xray/conf.d/30-outbound-client-xhttp-stream-up.json` :
+
+- `settings.id`
+- `xray_path`
+- `server_name`
+
+
+
+
+
+
+
+
+
+
+
 
 ```bash
-xray run --confdir /usr/local/etc/xray/conf.d/ --test
+xray run --confdir /etc/xray/conf.d/ --test
 systemctl status xray 
 systemctl start xray
 systemctl status xray 
@@ -507,259 +746,7 @@ tar -x -f xray-client.tar -C /root/xray-client/
 curl https://xyz.internal/index.html
 ```
 
-Create `/usr/local/etc/xray/conf.d/20-inbound-client.json` :
-
-```json
-{
-    "inbounds": [
-        {
-            "tag": "http-proxy",
-            "protocol": "http",
-            "port": 8080 ,
-            "settings": {
-                "allowTransparent": false ,
-                "accounts": [
-                    {
-                        "user": "user2",
-                        "pass": "222"
-                    }
-                ]
-            }
-        }
-    ]
-}
-```
-
-Create `/usr/local/etc/xray/transports/30-outbound-client-websocket.json` :
-
-```json
-{
-    "outbounds": [
-        {
-            "tag": "tunnel",
-            "protocol": "vless",
-            "targetStrategy": "AsIs",
-            "settings": {
-                "address": "xyz.internal",
-                "port": 443,
-                "id": "",
-                "encryption": "none"
-            },
-            "streamSettings": {
-                "network": "websocket",
-                "wsSettings": {
-                    "path": "/xray/websocket"
-                },
-                "security": "tls",
-                "tlsSettings": {
-                    "serverName": "xyz.internal",
-                    "fingerprint": "chrome",
-                    "allowInsecure": false ,
-                    "minVersion": "1.2",
-                    "maxVersion": "1.3",
-                    "alpn": [
-                        "http/1.1"
-                    ]
-                }
-            }
-        }
-    ]
-}
-```
-
-Create `/usr/local/etc/xray/transports/30-outbound-client-httpupgrade.json` :
-
-```json
-{
-    "outbounds": [
-        {
-            "tag": "tunnel",
-            "protocol": "vless",
-            "targetStrategy": "AsIs",
-            "settings": {
-                "address": "xyz.internal",
-                "port": 443,
-                "id": "",
-                "encryption": "none"
-            },
-            "streamSettings": {
-                "network": "httpupgrade",
-                "httpupgradeSettings": {
-                    "path": "/xray/httpupgrade"
-                },
-                "security": "tls",
-                "tlsSettings": {
-                    "serverName": "xyz.internal",
-                    "fingerprint": "chrome",
-                    "allowInsecure": false ,
-                    "minVersion": "1.2",
-                    "maxVersion": "1.3",
-                    "alpn": [
-                        "http/1.1"
-                    ]
-                }
-            }
-        }
-    ]
-}
-```
-
-Create `/usr/local/etc/xray/transports/30-outbound-client-grpc.json` :
-
-```json
-{
-    "outbounds": [
-        {
-            "tag": "tunnel",
-            "protocol": "vless",
-            "targetStrategy": "AsIs",
-            "settings": {
-                "address": "xyz.internal",
-                "port": 443,
-                "id": "",
-                "encryption": "none"
-            },
-            "streamSettings": {
-                "network": "grpc",
-                "grpcSettings": {
-                    "serviceName": "xray/grpc"
-                },
-                "security": "tls",
-                "tlsSettings": {
-                    "serverName": "xyz.internal",
-                    "fingerprint": "chrome",
-                    "allowInsecure": false ,
-                    "minVersion": "1.2",
-                    "maxVersion": "1.3",
-                    "alpn": [
-                        "h2" ,
-                        "http/1.1"
-                    ]
-                }
-            }
-        }
-    ]
-}
-```
-
-Create `/usr/local/etc/xray/transports/30-outbound-client-xhttp-stream-one.json` :
-
-```json
-{
-    "outbounds": [
-        {
-            "tag": "tunnel",
-            "protocol": "vless",
-            "targetStrategy": "AsIs",
-            "settings": {
-                "address": "xyz.internal",
-                "port": 443,
-                "id": "",
-                "encryption": "none"
-            },
-            "streamSettings": {
-                "network": "xhttp",
-                "xhttpSettings": {
-                    "path": "/xray/xhttp-stream-one",
-                    "mode": "stream-one"
-                },
-                "security": "tls",
-                "tlsSettings": {
-                    "serverName": "xyz.internal",
-                    "fingerprint": "chrome",
-                    "allowInsecure": false ,
-                    "minVersion": "1.2",
-                    "maxVersion": "1.3",
-                    "alpn": [
-                        "h2" ,
-                        "http/1.1"
-                    ]
-                }
-            }
-        }
-    ]
-}
-```
-
-Create `/usr/local/etc/xray/transports/30-outbound-client-xhttp-stream-up.json` :
-
-```json
-{
-    "outbounds": [
-        {
-            "tag": "tunnel",
-            "protocol": "vless",
-            "targetStrategy": "AsIs",
-            "settings": {
-                "address": "xyz.internal",
-                "port": 443,
-                "id": "",
-                "encryption": "none"
-            },
-            "streamSettings": {
-                "network": "xhttp",
-                "xhttpSettings": {
-                    "path": "/xray/xhttp-stream-up",
-                    "mode": "stream-up"
-                },
-                "security": "tls",
-                "tlsSettings": {
-                    "serverName": "xyz.internal",
-                    "fingerprint": "chrome",
-                    "allowInsecure": false ,
-                    "minVersion": "1.2",
-                    "maxVersion": "1.3",
-                    "alpn": [
-                        "h2" ,
-                        "http/1.1"
-                    ]
-                }
-            }
-        }
-    ]
-}
-```
-
-Create `/usr/local/etc/xray/transports/30-outbound-client-xhttp-packet-up.json` :
-
-```json
-{
-    "outbounds": [
-        {
-            "tag": "tunnel",
-            "protocol": "vless",
-            "targetStrategy": "AsIs",
-            "settings": {
-                "address": "xyz.internal",
-                "port": 443,
-                "id": "",
-                "encryption": "none"
-            },
-            "streamSettings": {
-                "network": "xhttp",
-                "xhttpSettings": {
-                    "path": "/xray/xhttp-packet-up",
-                    "mode": "packet-up"
-                },
-                "security": "tls",
-                "tlsSettings": {
-                    "serverName": "xyz.internal",
-                    "fingerprint": "chrome",
-                    "allowInsecure": false ,
-                    "minVersion": "1.2",
-                    "maxVersion": "1.3",
-                    "alpn": [
-                        "h2" ,
-                        "http/1.1"
-                    ]
-                }
-            }
-        }
-    ]
-}
-```
-
-Create `/usr/local/etc/xray/conf.d/31-outbound-client-direct.json` :
+Create `/etc/xray/conf.d/31-outbound-client-direct.json` :
 
 ```json
 {
@@ -786,7 +773,30 @@ Create `/usr/local/etc/xray/conf.d/31-outbound-client-direct.json` :
 }
 ```
 
-Create `/usr/local/etc/xray/conf.d/40-routing-client-split-tunneling.json` :
+Create `/usr/share/xray/conf.d/20-inbound-client.json` :
+
+```json
+{
+    "inbounds": [
+        {
+            "tag": "http-proxy",
+            "protocol": "http",
+            "port": 8080 ,
+            "settings": {
+                "allowTransparent": false ,
+                "accounts": [
+                    {
+                        "user": "user2",
+                        "pass": "222"
+                    }
+                ]
+            }
+        }
+    ]
+}
+```
+
+Create `/usr/share/xray/conf.d/40-routing-client-split-tunneling.json` :
 
 ```json
 {
@@ -819,30 +829,62 @@ Create `/usr/local/etc/xray/conf.d/40-routing-client-split-tunneling.json` :
 }
 ```
 
+cp /usr/share/xray/conf.d/40-routing-client-split-tunneling.json /etc/xray/conf.d/
+
+- `domain`
+- `ip`
+
+cp /usr/share/xray/conf.d/20-inbound-client.json /etc/xray/conf.d/
+
+- `settings.accounts`
+
 ```bash
-cp /usr/local/etc/xray/transports/30-outbound-client-websocket.json /usr/local/etc/xray/conf.d/
+cp /usr/share/xray/transports/30-outbound-client-websocket.json /etc/xray/conf.d/
 cat /root/xray-client/xray-id.txt
 ```
 
-Edit `/usr/local/etc/xray/conf.d/30-outbound-client-websocket.json` :
+Edit `/etc/xray/conf.d/30-outbound-client-websocket.json` :
 
 Place :
 
 - `settings.id`
 
-Edit `/usr/local/etc/xray/conf.d/40-routing-client-split-tunneling.json` :
-
-- `domain`
-- `ip`
-
 ```bash
-xray run --confdir /usr/local/etc/xray/conf.d/ --test
+xray run --confdir /etc/xray/conf.d/ --test
 systemctl status xray 
 systemctl start xray
 systemctl status xray 
 systemctl enable xray
 ss -lntup
 curl -v -x http://user2:222@127.0.0.1:8080 https://api.ipify.org
+```
+
+### Xray Tunneling :
+
+Create `/etc/systemd/system/proxy-tunnel.service` :
+
+```ini
+[Unit]
+Description=syslog proxy tunnel
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat TCP-LISTEN:6514,bind=127.0.0.1,reuseaddr,fork PROXY:127.0.0.1:rsyslog.internal:6514,proxyport=8080
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl status proxy-tunnel
+systemctl start proxy-tunnel
+systemctl status proxy-tunnel
+systemctl enable proxy-tunnel
 ```
 
 # Further Reading : 

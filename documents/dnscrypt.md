@@ -2,14 +2,17 @@
 # DNSCrypt :
 
 ```bash
-apt install dnscrypt-proxy bind9-dnsutils
+dpkg-query --show --showformat='${Status}\n' dnscrypt-proxy
+apt install dnscrypt-proxy
+dpkg-query --show --showformat='${Status}\n' bind9-dnsutils
+apt install bind9-dnsutils
 ```
 
 Edit `/etc/dnscrypt-proxy/dnscrypt-proxy.toml` :
 
 ```toml
 server_names = ['cloudflare']
-listen_addresses = ['127.0.0.1:2053']
+listen_addresses = ['127.0.0.1:dnscrypt_port']
 ipv4_servers = true
 doh_servers = true
 require_dnssec = true
@@ -23,21 +26,13 @@ cache = true
 cache_size = 4096
 ```
 
+- `dnscrypt_port`
 - `[query_log]`
 - `[nx_log]`
 - `[sources]`
 
 ```bash
 dnscrypt-proxy -check -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml
-mkdir -p /etc/systemd/system/dnscrypt-proxy.service.d/
-```
-
-Create `/etc/systemd/system/dnscrypt-proxy.service.d/override.conf` :
-
-```ini
-[Service]
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_BIND_SERVICE
 ```
 
 ```bash
@@ -49,5 +44,6 @@ systemctl restart dnscrypt-proxy
 systemctl status dnscrypt-proxy
 systemctl enable dnscrypt-proxy
 ss -lntup
-dig @127.0.0.1 -p 2053 whoami.cloudflare ch txt +short
+dig @127.0.0.1 -p dnscrypt_port whoami.cloudflare ch txt +short
 ```
+

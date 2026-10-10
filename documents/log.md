@@ -2,12 +2,10 @@
 
 
 ```bash
-dpkg-query --show --showformat='${Status}' systemd
+dpkg-query --show --showformat='${Status}\n' systemd
 apt install systemd
-dpkg-query --show --showformat='${Status}' rsyslog
+dpkg-query --show --showformat='${Status}\n' rsyslog
 apt install rsyslog
-dpkg-query --show --showformat='${Status}' socat
-apt install socat
 ```
 
 systemctl status systemd-journald
@@ -65,33 +63,26 @@ either through specific file , ...
 check that a single log is not sent twice through both systemd and rsyslog 
 
 remote vps sending tcp logs through http proxy :
-socat TCP-LISTEN:6514,bind=127.0.0.1,reuseaddr,fork PROXY:127.0.0.1:rsyslog.internal:6514,proxyport=8080
 
 
-/etc/systemd/system/syslog-proxy-tunnel.service
 
-[Unit]
-Description=syslog proxy tunnel
-Wants=network-online.target
-After=network-online.target
 
-[Service]
-Type=simple
-ExecStart=/usr/bin/socat TCP-LISTEN:6514,bind=127.0.0.1,reuseaddr,fork PROXY:127.0.0.1:rsyslog.internal:6514,proxyport=8080
-Restart=always
-RestartSec=5s
 
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
 
-[Install]
-WantedBy=multi-user.target
 
-sudo systemctl daemon-reload
-sudo systemctl enable --now syslog-proxy-tunnel
-sudo systemctl status syslog-proxy-tunnel
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /etc/rsyslog.d/00-remote-forward.conf :
 

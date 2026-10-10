@@ -11,9 +11,9 @@
 ---
 
 ```bash
-dpkg-query --show --showformat='${Status}' ppp
+dpkg-query --show --showformat='${Status}\n' ppp
 dpkg --install /root/downloads/ppp.deb
-dpkg-query --show --showformat='${Status}' pptp-linux
+dpkg-query --show --showformat='${Status}\n' pptp-linux
 dpkg --install /root/downloads/pptp-linux.deb
 ```
 
@@ -64,3 +64,7 @@ systemctl start pptp-vpn
 systemctl status pptp-vpn
 systemctl enable pptp-vpn
 ```
+
+meta nfproto ipv4 ip saddr pptp_server_ip ip protocol gre accept
+
+

@@ -4,13 +4,13 @@
 ```bash
 ip -br addr show
 ip route show
-dpkg-query --show --showformat='${Status}' systemd
+dpkg-query --show --showformat='${Status}\n' systemd
 apt install systemd
-dpkg-query --show --showformat='${Status}' iproute2
+dpkg-query --show --showformat='${Status}\n' iproute2
 apt install iproute2
-dpkg-query --show --showformat='${Status}' iputils-ping
+dpkg-query --show --showformat='${Status}\n' iputils-ping
 apt install iputils-ping
-dpkg-query --show --showformat='${Status}' iputils-tracepath
+dpkg-query --show --showformat='${Status}\n' iputils-tracepath
 apt install iputils-tracepath
 ```
 

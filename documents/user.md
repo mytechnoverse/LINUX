@@ -1,9 +1,9 @@
 
 
 ```bash
-dpkg-query --show --showformat='${Status}' sudo
+dpkg-query --show --showformat='${Status}\n' sudo
 apt install sudo
-dpkg-query --show --showformat='${Status}' whois
+dpkg-query --show --showformat='${Status}\n' whois
 apt install whois
 ```
 

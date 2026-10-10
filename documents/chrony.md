@@ -1,15 +1,15 @@
 
 ```bash
-dpkg-query --show --showformat='${Status}' systemd-timesyncd
+dpkg-query --show --showformat='${Status}\n' systemd-timesyncd
 apt purge systemd-timesyncd
 apt autoremove --purge
-dpkg-query --show --showformat='${Status}' ca-certificates
+dpkg-query --show --showformat='${Status}\n' ca-certificates
 apt install ca-certificates
-dpkg-query --show --showformat='${Status}' systemd
+dpkg-query --show --showformat='${Status}\n' systemd
 apt install systemd
 timedatectl set-timezone Etc/UTC
 timedatectl set-local-rtc 0
-dpkg-query --show --showformat='${Status}' chrony
+dpkg-query --show --showformat='${Status}\n' chrony
 apt install chrony
 ```
 

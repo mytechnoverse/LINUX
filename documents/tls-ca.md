@@ -2,18 +2,21 @@
 # TLS Certificate Authority :
 
 ```bash
-apt install openssl ca-certificates
-mkdir -p /root/tls/
+dpkg-query --show --showformat='${Status}\n' ca-certificates
+apt install ca-certificates
+dpkg-query --show --showformat='${Status}\n' openssl
+apt install openssl
+mkdir -p /etc/tls/
 ```
 
-Create `/root/tls/create-ca.sh` :
+Create `/root/create-tls-ca.sh` :
 
 ```bash
 #!/usr/bin/bash
 set -Eeuo pipefail
 ca_name=$1
 ca_tld=$2
-ca_tls_path="/root/tls/${ca_name}/"
+ca_tls_path="/etc/tls/${ca_name}/"
 mkdir $ca_tls_path
 ca_key_path="${ca_tls_path}${ca_name}.key"
 ca_crt_path="${ca_tls_path}${ca_name}.crt"
@@ -24,17 +27,17 @@ openssl req -new -sha256 -x509 -days 365 -key $ca_key_path -out $ca_crt_path -su
 -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' -addext "nameConstraints=critical,permitted;DNS:${ca_tld}" -addext 'subjectKeyIdentifier=hash'
 ```
 
-Create `/root/tls/create-server.sh` :
+Create `/root/create-tls-cert.sh` :
 
 ```bash
 #!/usr/bin/bash
 set -Eeuo pipefail
 ca_name=$1
 server_name=$2
-ca_tls_path="/root/tls/${ca_name}/"
+ca_tls_path="/etc/tls/${ca_name}/"
 ca_key_path="${ca_tls_path}${ca_name}.key"
 ca_crt_path="${ca_tls_path}${ca_name}.crt"
-server_tls_path="/root/tls/${server_name}/"
+server_tls_path="/etc/tls/${server_name}/"
 mkdir $server_tls_path
 server_key_path="${server_tls_path}${server_name}.key"
 server_key_pass_path="${server_tls_path}${server_name}.pass"
@@ -67,13 +70,13 @@ cat $server_crt_path $ca_crt_path > $server_crt_chain_path
 ```
 
 ```bash
-bash /root/tls/create-ca.sh internal-ca internal
-bash /root/tls/create-server.sh internal-ca xyz.internal
-openssl verify -CAfile /root/tls/internal-ca/internal-ca.crt -purpose sslserver /root/tls/xyz.internal/xyz.internal.crt
+bash /root/create-tls-ca.sh internal-ca internal
+bash /root/create-tls-cert.sh internal-ca server_name
+openssl verify -CAfile /etc/tls/internal-ca/internal-ca.crt -purpose sslserver /etc/tls/server_name/server_name.crt
 ```
 
 ```bash
-cp /root/tls/internal-ca/internal-ca.crt /usr/local/share/ca-certificates/
+cp /etc/tls/internal-ca/internal-ca.crt /usr/local/share/ca-certificates/
 update-ca-certificates
 ```
 

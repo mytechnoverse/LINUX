@@ -1,15 +1,15 @@
 
 # Package Managment :
 
-dpkg-query --show --showformat='${Status}' ca-certificates
+dpkg-query --show --showformat='${Status}\n' ca-certificates
 apt install ca-certificates
 
-dpkg-query --show --showformat='${Status}' gpgv
+dpkg-query --show --showformat='${Status}\n' gpgv
 apt install --no-install-recommends gpgv
 
 ### Ubuntu 26 :
 
-dpkg-query --show --showformat='${Status}' ubuntu-keyring
+dpkg-query --show --showformat='${Status}\n' ubuntu-keyring
 apt install ubuntu-keyring
 
 Check `/etc/apt/sources.list.d/ubuntu.sources` :
@@ -30,7 +30,7 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
 ### Debian 13 :
 
-dpkg-query --show --showformat='${Status}' debian-archive-keyring
+dpkg-query --show --showformat='${Status}\n' debian-archive-keyring
 apt install debian-archive-keyring
 
 Check `/etc/apt/sources.list.d/debian.sources` :

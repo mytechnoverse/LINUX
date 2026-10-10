@@ -2,7 +2,7 @@
 # Systemd Resolved :
 
 ```bash
-dpkg-query --show --showformat='${Status}' systemd-resolved
+dpkg-query --show --showformat='${Status}\n' systemd-resolved
 apt install systemd-resolved
 ```
 

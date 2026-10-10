@@ -2,15 +2,34 @@
 # Nginx :
 
 ```bash
-dpkg-query --show --showformat='${Status}' nginx
+dpkg-query --show --showformat='${Status}\n' nginx
+dpkg-query --show --showformat='${Version}\n' nginx
 apt purge nginx
 apt autoremove --purge
+```
+
+---
+
+## Distro Repository : 
+
+```bash
+apt install nginx
+rm -rf /etc/nginx/sites-available/
+rm -rf /etc/nginx/sites-enabled/
+sed '\|/etc/nginx/sites-enabled/\*|d' /etc/nginx/nginx.conf
+```
+
+---
+
+## Nginx Repository :
+
+- <https://nginx.org/keys/nginx_signing.key>
+
+```bash
+dpkg-query --show --showformat='${Status}\n' gpg
 apt install --no-install-recommends gpg
-curl -o /root/downloads/nginx-archive-keyring.asc https://nginx.org/keys/nginx_signing.key
-file /root/downloads/nginx-archive-keyring.asc
-gpg --dearmor --output /root/downloads/nginx-archive-keyring.pgp /root/downloads/nginx-archive-keyring.asc
-rm /root/downloads/nginx-archive-keyring.asc
-mv /root/downloads/nginx-archive-keyring.pgp /etc/apt/keyrings/nginx-archive-keyring.pgp
+gpg --dearmor --output /root/downloads/nginx-archive-keyring.pgp /root/downloads/nginx_signing.key
+cp /root/downloads/nginx-archive-keyring.pgp /etc/apt/keyrings/nginx-archive-keyring.pgp
 ```
 
 ---
@@ -58,18 +77,71 @@ nginx -V
 rm -f /etc/nginx/conf.d/default.conf
 ```
 
-
-
-/etc/nginx/website_name/tls/
+---
 
 ```bash
-mkdir -p /etc/nginx/xyz.internal/tls/
-cp /root/tls/xyz.internal/xyz.internal.enc.key /etc/nginx/xyz.internal/tls/xyz.internal.enc.key
-cp /root/tls/xyz.internal/xyz.internal.cred /etc/nginx/xyz.internal/tls/xyz.internal.cred
-cp /root/tls/xyz.internal/xyz.internal-fullchain.crt /etc/nginx/xyz.internal/tls/xyz.internal-fullchain.crt
-mkdir -p /etc/systemd/system/nginx.service.d/
-mkdir -p /etc/nginx/xyz.internal/conf.d/
+mkdir /etc/nginx/server_name/
+mkdir /etc/systemd/system/nginx.service.d/
+mkdir -p /var/www/server_name/public/
+cp /usr/share/nginx/html/index.html /var/www/server_name/public/
 ```
+
+Create `/etc/nginx/conf.d/server_name.conf` :
+
+```nginx
+server {
+    listen 80;
+    server_name server_name;
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name server_name;
+    ssl_certificate /etc/tls/server_name/server_name-fullchain.crt;
+    ssl_certificate_key /etc/tls/server_name/server_name.enc.key;
+    ssl_password_file /run/credentials/nginx.service/server_name;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    include /etc/nginx/server_name/*.conf;
+    location / {
+        root /var/www/server_name/public;
+        index index.html;
+    }
+}
+```
+
+Create `/etc/systemd/system/nginx.service.d/server_name.conf` :
+
+```ini
+[Service]
+LoadCredentialEncrypted=server_name:/etc/tls/server_name/server_name.cred
+```
+
+```bash
+systemctl daemon-reload
+systemctl status nginx
+systemctl start nginx
+systemctl status nginx
+systemctl restart nginx
+systemctl status nginx
+systemctl enable nginx
+ss -lntup
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 Create `/etc/nftables/conf.d/11-nginx.nft` :
 
@@ -83,5 +155,20 @@ nft --check --file /etc/nftables.conf
 nft --file /etc/nftables.conf
 nft list ruleset
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

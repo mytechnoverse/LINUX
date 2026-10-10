@@ -21,7 +21,7 @@ MaxAuthTries 6 -> 3
 nginx rate limiting per ip
 
 ```bash
-dpkg-query --show --showformat='${Status}' nftables
+dpkg-query --show --showformat='${Status}\n' nftables
 apt install nftables
 mkdir -p /etc/nftables/conf.d/
 ```
